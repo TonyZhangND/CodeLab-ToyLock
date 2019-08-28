@@ -38,11 +38,13 @@ namespace NuBuild
         /// </summary>
         public Job()
         {
-            this.jobObjectHandle = NativeMethods.CreateJobObject(IntPtr.Zero, null);
+            IntPtr ptr = IntPtr.Zero;
+            // this.jobObjectHandle = NativeMethods.CreateJobObject(IntPtr.Zero, null);
+            this.jobObjectHandle = new SafeFileHandle(ptr,true);
             if (this.jobObjectHandle.IsInvalid)
             {
                 // Note that the parameterless Win32Exception constructor calls Marshal.GetLastWin32Error internally.
-                throw new Win32Exception();
+                // throw new Win32Exception();
             }
 
             // -
@@ -68,15 +70,15 @@ namespace NuBuild
             {
                 Marshal.StructureToPtr(info, infoPtr, false);
 
-                if (!NativeMethods.SetInformationJobObject(
-                         this.jobObjectHandle,
-                         NativeMethods.JOBOBJECTINFOCLASS.ExtendedLimitInformation,
-                         infoPtr,
-                         (UInt32)infoSize))
-                {
-                    // Note that the parameterless Win32Exception constructor calls Marshal.GetLastWin32Error internally.
-                    throw new Win32Exception();
-                }
+                // if (!NativeMethods.SetInformationJobObject(
+                //          this.jobObjectHandle,
+                //          NativeMethods.JOBOBJECTINFOCLASS.ExtendedLimitInformation,
+                //          infoPtr,
+                //          (UInt32)infoSize))
+                // {
+                //     // Note that the parameterless Win32Exception constructor calls Marshal.GetLastWin32Error internally.
+                //     throw new Win32Exception();
+                // }
             }
             finally
             {
@@ -91,7 +93,9 @@ namespace NuBuild
         /// <returns>True if successful, false otherwise.</returns>
         public bool AddProcess(Process process)
         {
-            return NativeMethods.AssignProcessToJobObject(this.jobObjectHandle, process.Handle);
+            process.Start();
+            return true;
+            // return NativeMethods.AssignProcessToJobObject(this.jobObjectHandle, process.Handle);
         }
 
         /// <summary>
@@ -167,16 +171,16 @@ namespace NuBuild
 
             try
             {
-                if (!NativeMethods.QueryInformationJobObject(
-                         this.jobObjectHandle,
-                         NativeMethods.JOBOBJECTINFOCLASS.BasicAccountingInformation,
-                         infoPtr,
-                         (UInt32)infoSize,
-                         IntPtr.Zero))
-                {
-                    // Note that the parameterless Win32Exception constructor calls Marshal.GetLastWin32Error internally.
-                    throw new Win32Exception();
-                }
+                // if (!NativeMethods.QueryInformationJobObject(
+                //          this.jobObjectHandle,
+                //          NativeMethods.JOBOBJECTINFOCLASS.BasicAccountingInformation,
+                //          infoPtr,
+                //          (UInt32)infoSize,
+                //          IntPtr.Zero))
+                // {
+                //     // Note that the parameterless Win32Exception constructor calls Marshal.GetLastWin32Error internally.
+                //     throw new Win32Exception();
+                // }
 
                 info = (NativeMethods.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)Marshal.PtrToStructure(infoPtr, typeof(NativeMethods.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION));
             }

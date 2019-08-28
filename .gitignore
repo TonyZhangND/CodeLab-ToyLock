@@ -6,3 +6,8 @@
 # show up as "Untracked Files" in the "Team Explorer - Changes" panel.
 #
 .vscode
+./ironfleet/nubuild.log
+./ironfleet/nubuild.progress
+./ironfleet/nucache/
+./ironfleet/nucache
+./ironfleet/nuobj

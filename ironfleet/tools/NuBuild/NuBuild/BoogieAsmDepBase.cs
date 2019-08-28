@@ -152,8 +152,8 @@ namespace NuBuild
                     }
 
                     // REVIEW: The following two variables are unused.  Remove?
-                    string targetModName = upstreamObj.getFileNameWithoutExtension();
-                    ModPart targetModPart = BeatExtensions.whichPart(upstreamObj);
+                    // string targetModName = upstreamObj.getFileNameWithoutExtension();
+                    // ModPart targetModPart = BeatExtensions.whichPart(upstreamObj);
 
                     // NB security policy note: When verifying X.imp, we must be sure to supply X.ifc
                     // to BoogieAsm, so that we know that we're actually verifying the promises

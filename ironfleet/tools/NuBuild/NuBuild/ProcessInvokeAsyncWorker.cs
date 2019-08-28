@@ -150,24 +150,24 @@ namespace NuBuild
             this.returnStandardOut = returnStandardOut;
             this.returnStandardError = returnStandardError;
 
-            if (allowCloudExecution)
-            {
-                // Verbs cannot allow cloud execution if they allow absolute paths to exes or args.
-                Util.Assert(!this.allowAbsoluteExe);
-                Util.Assert(!this.allowAbsoluteArgs);
-                Util.Assert(this.workingDirOverride == null);
-
-                if (BuildEngine.theEngine.CloudExecutionQueue != null)
-                {
-                    // We're good to go for cloud execution.
-                    this.useCloudExecution = true;
-
-                    // REVIEW: If there are other things we should do on the main thread prior to CloudSubmitter invocation, we should do them here.
-                    this.inputFiles = this.GetInputFiles();
-                    this.outputFiles = new List<BuildObject>(this.verb.getOutputs());
-                    this.outputFiles.AddRange(this.verb.getFailureOutputs());
-                }
-            }
+            // if (allowCloudExecution)
+            // {
+            //     // Verbs cannot allow cloud execution if they allow absolute paths to exes or args.
+            //     Util.Assert(!this.allowAbsoluteExe);
+            //     Util.Assert(!this.allowAbsoluteArgs);
+            //     Util.Assert(this.workingDirOverride == null);
+            //
+            //     if (BuildEngine.theEngine.CloudExecutionQueue != null)
+            //     {
+            //         // We're good to go for cloud execution.
+            //         this.useCloudExecution = true;
+            //
+            //         // REVIEW: If there are other things we should do on the main thread prior to CloudSubmitter invocation, we should do them here.
+            //         this.inputFiles = this.GetInputFiles();
+            //         this.outputFiles = new List<BuildObject>(this.verb.getOutputs());
+            //         this.outputFiles.AddRange(this.verb.getFailureOutputs());
+            //     }
+            // }
         }
 
         /// <summary>
@@ -201,17 +201,17 @@ namespace NuBuild
         {
             if (this.useCloudExecution)
             {
-                // REVIEW: Would prefer to use the verb's input hash value as the request identifier below.
-                this.pinv = new CloudSubmitter(
-                    Path.GetRandomFileName(),
-                    this.workingDirectory,
-                    this.inputFiles,
-                    this.outputFiles,
-                    this.executable,
-                    this.args,
-                    this.failureBase,
-                    this.captureStdout,
-                    this.dbgText);
+                // // REVIEW: Would prefer to use the verb's input hash value as the request identifier below.
+                // this.pinv = new CloudSubmitter(
+                //     Path.GetRandomFileName(),
+                //     this.workingDirectory,
+                //     this.inputFiles,
+                //     this.outputFiles,
+                //     this.executable,
+                //     this.args,
+                //     this.failureBase,
+                //     this.captureStdout,
+                //     this.dbgText);
             }
             else
             {

@@ -45,7 +45,7 @@ namespace NuBuild
             throw new UserError("Invalid options");
         }
 
-        string ironRoot;
+        string ironRoot = Directory.GetCurrentDirectory();
         int jobParallelism = 1;
         List<IVerb> verbs = new List<IVerb>();
         string html_output = null;
@@ -243,12 +243,12 @@ namespace NuBuild
             {
                 try
                 {
-                    BuildEngine.theEngine.CloudCache = new ItemCacheCloud();
-
-                    return new ItemCacheMultiplexer(
-                        new ItemCacheLocal(localCacheDirectory),
-                        BuildEngine.theEngine.CloudCache,
-                        this.backgroundWorker);
+                    // BuildEngine.theEngine.CloudCache = new ItemCacheCloud();
+                    //
+                    // return new ItemCacheMultiplexer(
+                    //     new ItemCacheLocal(localCacheDirectory),
+                    //     BuildEngine.theEngine.CloudCache,
+                    //     this.backgroundWorker);
                 }
                 catch (Microsoft.WindowsAzure.Storage.StorageException)
                 {
@@ -303,7 +303,7 @@ namespace NuBuild
         private IEnumerable<string> fetchConfigArgs()
         {
             string config_path =
-                Path.Combine(getDefaultIronRoot(), NUBUILD_CONFIG);
+                Path.Combine(ironRoot, NUBUILD_CONFIG);
             if (!File.Exists(config_path))
             {
                 return new string[] { };
@@ -344,7 +344,7 @@ namespace NuBuild
                 }
 
                 BuildEngine.theEngine.CloudReportQueueName = Path.GetRandomFileName().Substring(0, 8);
-                BuildEngine.theEngine.CloudExecutionQueue = new CloudExecutionQueue(BuildEngine.theEngine.CloudReportQueueName);
+                // BuildEngine.theEngine.CloudExecutionQueue = new CloudExecutionQueue(BuildEngine.theEngine.CloudReportQueueName);
                 Logger.WriteLine("Using cloud report queue name: " + BuildEngine.theEngine.CloudReportQueueName);
             }
 

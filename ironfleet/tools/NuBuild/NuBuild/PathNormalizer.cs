@@ -33,10 +33,10 @@ namespace NuBuild
         public string normalizeAbsolutePath(string absPath)
         {
             string dotdotfreepath = this.cleanDotDots(absPath);
-            if (!Path.IsPathRooted(dotdotfreepath))
-            {
-                throw new ArgumentException("Requires absolute path");
-            }
+            // if (!Path.IsPathRooted(dotdotfreepath))
+            // {
+            //     throw new ArgumentException("Requires absolute path");
+            // }
 
             return this.normalizePath(dotdotfreepath, false);
         }
@@ -81,6 +81,12 @@ namespace NuBuild
                         // results, we should end up canonicalizing to the first capitalization
                         // we see.
                         normalizedPath = Path.Combine(normalizedParent, childName);
+                        if (!Directory.Exists(normalizedPath) && !File.Exists(normalizedPath) && !childName.Contains("."))
+                        {
+                            // Console.WriteLine("normalized + child (pathNorm 90) " + normalizedPath );
+
+                            Directory.CreateDirectory(normalizedPath);
+                        }
 
                         // Unfortunately, we can't tell whether we should add a path separator here!
                         if (presumedDirectory)
@@ -111,7 +117,7 @@ namespace NuBuild
             catch (Exception ex)
             {
                 Trace.TraceError(ex.Message);
-                throw new ArgumentException("invalid path");
+                throw new ArgumentException("invalid path " + requestPath + " :: " + ex.Message + "\n");
             }
         }
 

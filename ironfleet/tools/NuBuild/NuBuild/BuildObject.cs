@@ -339,7 +339,7 @@ namespace NuBuild
         private string getDirRelativeToSrcOrObj()
         {
             string dirname = this.getDirPath();
-            int slash = dirname.IndexOf('\\');
+            int slash = dirname.IndexOf('/');
             Util.Assert(slash >= 0);
             return dirname.Substring(slash + 1);
         }

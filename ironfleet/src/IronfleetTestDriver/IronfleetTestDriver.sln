@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IronfleetTestDriver", "IronfleetTestDriver\IronfleetTestDriver.csproj", "{FC42BBAC-1DB5-4F8A-91C5-27D26C6CA343}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IronfleetTestDriver", "IronfleetTestDriver/IronfleetTestDriver.csproj", "{FC42BBAC-1DB5-4F8A-91C5-27D26C6CA343}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

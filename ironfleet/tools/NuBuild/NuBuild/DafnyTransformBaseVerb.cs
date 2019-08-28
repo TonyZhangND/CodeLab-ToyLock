@@ -38,7 +38,7 @@ namespace NuBuild
             this.appLabel = appLabel;
 
             // REVIEW: This is never used by anything.  Remove?
-            IEnumerable<string> roots = this.getRoots().Select(obj => obj.ToString());
+            // IEnumerable<string> roots = this.getRoots().Select(obj => obj.ToString());
         }
 
         private delegate void Tacker(BuildObject dfysource, string filename);
