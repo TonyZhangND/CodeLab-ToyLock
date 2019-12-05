@@ -36,28 +36,33 @@ module Main_i refines Main_s {
     {
         // TODO
         sb := [];
+        var history := [];
         var i := 0;
         while (i < |db|)
             decreases |db| - i;
+            invariant 0 <= i <= |db|;
+            invariant |sb| == i;
         {
             var ds := db[i];
             var hosts := ds.servers.Keys;  // set of server endpoints
             var host_states := ds.servers.Values;  // set of node HostStates
             
-            // Find node holding the lock
-            var lock_at_endpoint : EndPoint;  
+            // Find node holding the lock and add to history
             var hs_set := host_states;
             while ( hs_set != {} )
                 decreases hs_set;
             {
                 var hs :| hs in hs_set;
                 if (hs.node_impl.node.held) {
-                    lock_at_endpoint := hs.node_impl.localAddr;
+                    history := history + [hs.node_impl.localAddr];
+                    break;
                 }
                 hs_set := hs_set - { hs };
             }
+            sb := sb + [ServiceState'(hosts, history)];
             i := i + 1;
         }
+        assert i == |db|;
+        assert i == |sb|;
     }
-    
 }
