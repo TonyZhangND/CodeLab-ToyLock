@@ -42,10 +42,11 @@ module Main_i refines Main_s {
             decreases |db| - i;
             invariant 0 <= i <= |db|;
             invariant |sb| == i;
+            invariant forall k :: 0 <= k < |sb| ==> sb[k].hosts == Collections__Maps2_s.mapdomain(db[k].servers);
         {
-            var ds := db[i];
-            var hosts := ds.servers.Keys;  // set of server endpoints
-            var host_states := ds.servers.Values;  // set of node HostStates
+            var impl_state := db[i];
+            var hosts := impl_state.servers.Keys;  // set of server endpoints
+            var host_states := impl_state.servers.Values;  // set of node HostStates
             
             // Find node holding the lock and add to history
             var hs_set := host_states;
