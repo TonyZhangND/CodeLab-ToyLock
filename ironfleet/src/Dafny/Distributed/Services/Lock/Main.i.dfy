@@ -33,20 +33,11 @@ module Main_i refines Main_s {
         ensures  forall i {:trigger Service_Next(sb[i], sb[i+1])} :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
         ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
         */
-    {
-        // TODO
 
         // First prove Service_Init()
         var history := [config[0]];
-
-        assert forall ep :: ep in config ==> ep in MapSeqToSet(config, x=>x);
-        assert Collections__Maps2_s.mapdomain(db[0].servers) == MapSeqToSet(config, x=>x);
-        assert forall ep :: ep in config ==> ep in Collections__Maps2_s.mapdomain(db[0].servers);
-        assert config[0] in Collections__Maps2_s.mapdomain(db[0].servers);
-
         sb := [ServiceState'(Collections__Maps2_s.mapdomain(db[0].servers), history)];
-
-        assert sb[0].history == [config[0]] && config[0] in Collections__Maps2_s.mapdomain(db[0].servers);
+        assert forall ep :: ep in config <==> ep in Collections__Maps2_s.mapdomain(db[0].servers);
     
 
         var i := 1;
@@ -58,7 +49,8 @@ module Main_i refines Main_s {
             invariant forall k :: 1 <= k < |sb| ==> sb[k].hosts == Collections__Maps2_s.mapdomain(db[k].servers);
 
             // Stuff for proving initial state
-            invariant sb[0].history == [config[0]] && config[0] in Collections__Maps2_s.mapdomain(db[0].servers);
+            invariant sb[0].history == [config[0]];
+            invariant config[0] in Collections__Maps2_s.mapdomain(db[0].servers);
             invariant sb[0].hosts == Collections__Maps2_s.mapdomain(db[0].servers);
         {
             var impl_state := db[i];
@@ -82,6 +74,5 @@ module Main_i refines Main_s {
         }
         assert i == |db|;
         assert i == |sb|;
-        assert sb[0].history == [config[0]] && config[0] in Collections__Maps2_s.mapdomain(db[0].servers);
     }
 }
