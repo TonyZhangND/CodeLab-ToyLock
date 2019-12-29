@@ -15,7 +15,7 @@ module DistributedSystem_i {
     /////////////////////////////////////////
     
     datatype LS_State = LS_State(
-        environment:LockEnvironment,
+        environment:LockEnvironment,   // LEnvironment
         servers:map<EndPoint,Node>
         )
 
