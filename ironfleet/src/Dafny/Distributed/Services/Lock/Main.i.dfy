@@ -100,7 +100,21 @@ module Main_i refines Main_s {
             invariant 1 <= i <= |db|;
             invariant i == |lb|;
             invariant LS_Init(lb[0], config); 
+            
+            // LS_Next for i = 1 case
+            invariant i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); //!
+            invariant i > 1 ==> (
+                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
+                then
+                    LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
+                else
+                    lb[1].servers == lb[0].servers //!
+            );
+
+
             invariant i > 1 ==> LS_Next(lb[0], lb[1]);
+
+            // LS_Next for i > 1 case
             invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]);
         {
             // Construct LS_State.environment
