@@ -54,7 +54,8 @@ module Main_i refines Main_s {
         ensures  forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
         // ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
     {
-        // Construct LS_State.environment
+        // FIRST CONSTRUCT THE INITIAL PROTOCOL STATE
+        // Construct LS_State.environment for initial state
         var sentPackets := set p | p in db[0].environment.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
         var hostInfo := convertHostInfo(db[0].environment.hostInfo);
         var nextStep : LEnvStep<EndPoint, LockMessage>;
@@ -80,9 +81,8 @@ module Main_i refines Main_s {
                                 hostInfo,
                                 nextStep);
 
-        // Construct LS_State.servers
+        // Construct LS_State.servers for initial state
         var servers :=   map s | s in db[0].servers :: db[0].servers[s].node;
-
 
         lb := [LS_State(env, servers)];
         
@@ -90,6 +90,49 @@ module Main_i refines Main_s {
         assert forall e :: e in config <==> e in db[0].servers;
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
+        assert LS_Init(lb[0], config); // Make sure LS_Init is true
+
+        // NOW CONSTRUCT FUTURE PROTOCOL STATES
+        var i := 1;
+        while ( i < |db| )
+            decreases |db| - i;
+            invariant 1 <= i <= |db|;
+            invariant i == |lb|;
+            invariant LS_Init(lb[0], config); 
+        {
+            // Construct LS_State.environment
+            var sentPackets := set p | p in db[i].environment.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+            var hostInfo := convertHostInfo(db[i].environment.hostInfo);
+            var nextStep : LEnvStep<EndPoint, LockMessage>;
+            match db[i].environment.nextStep  {
+                // Construct environment.nextStep
+                case LEnvStepHostIos(actor, ios)    => 
+                {
+                    var new_ios := convertLEnvStepHostIos(ios);
+                    nextStep := LEnvStepHostIos(actor, new_ios);
+                }
+                case LEnvStepDeliverPacket(p)       => 
+                {
+                    var new_packet := LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+                    nextStep := LEnvStepDeliverPacket(new_packet);
+                }
+                case LEnvStepAdvanceTime            => 
+                    nextStep := LEnvStepAdvanceTime();
+                case LEnvStepStutter                => 
+                    nextStep := LEnvStepStutter();
+            }
+            var env := LEnvironment(db[i].environment.time,
+                                    sentPackets,
+                                    hostInfo,
+                                    nextStep);
+
+            // Construct LS_State.servers
+            var servers :=   map s | s in db[i].servers :: db[i].servers[s].node;
+
+            // Create and append new LS_State
+            lb := lb + [LS_State(env, servers)];
+            i := i + 1;
+        }
     }
 
 
