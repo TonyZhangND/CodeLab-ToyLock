@@ -90,7 +90,8 @@ module Main_i refines Main_s {
         assert forall e :: e in config <==> e in db[0].servers;
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
-        assert LS_Init(lb[0], config); // Make sure LS_Init is true
+        // Make sure LS_Init is true
+        assert LS_Init(lb[0], config); 
 
         // NOW CONSTRUCT FUTURE PROTOCOL STATES
         var i := 1;
@@ -99,6 +100,8 @@ module Main_i refines Main_s {
             invariant 1 <= i <= |db|;
             invariant i == |lb|;
             invariant LS_Init(lb[0], config); 
+            invariant i > 1 ==> LS_Next(lb[0], lb[1]);
+            invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]);
         {
             // Construct LS_State.environment
             var sentPackets := set p | p in db[i].environment.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
@@ -133,6 +136,9 @@ module Main_i refines Main_s {
             lb := lb + [LS_State(env, servers)];
             i := i + 1;
         }
+
+        // Make sure LS_Next is true, and we are done
+        assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
     }
 
 
