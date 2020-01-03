@@ -59,6 +59,7 @@ module Main_i refines Main_s {
         var hostInfo := convertHostInfo(db[0].environment.hostInfo);
         var nextStep : LEnvStep<EndPoint, LockMessage>;
         match db[0].environment.nextStep  {
+            // Construct environment.nextStep
             case LEnvStepHostIos(actor, ios)    => 
             {
                 var new_ios := convertLEnvStepHostIos(ios);
@@ -81,32 +82,14 @@ module Main_i refines Main_s {
 
         // Construct LS_State.servers
         var servers :=   map s | s in db[0].servers :: db[0].servers[s].node;
+
+
         lb := [LS_State(env, servers)];
-        assert forall e :: e in config <==> e in lb[0].servers;
+        
+         // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
         assert forall e :: e in config <==> e in db[0].servers;
-        assert forall index :: 0 <= index < |config| ==> HostInit(db[0].servers[config[index]], config, config[index]);
-        assert forall index :: 0 <= index < |config| ==> int(db[0].servers[config[index]].node_impl.node.my_index) == db[0].servers[config[index]].node.my_index;
-        assert forall index :: 0 <= index < |config| ==> db[0].servers[config[index]].node_impl.node.config == config; // all configs are the same
-        assert forall index :: 0 <= index < |config| ==> SeqIsUnique(db[0].servers[config[index]].node_impl.node.config);
-
-        // forall servers, its endpoint is config indexed by the server's index
-        assert forall index :: 0 <= index < |config| ==> db[0].servers[config[index]].node_impl.node.config[db[0].servers[config[index]].node_impl.node.my_index] == config[index];
-
-        // for all ep in config, there exists a unique i such that config[i] == ep
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
-        assert forall i, j :: 0 <= i < |config| && 0 <= j < |config| && config[i] == config[j] ==> i == j;
-
-        // all nodes have unique index
-        assert forall i, j :: 0 <= i < |config| && 0 <= j < |config| ==> (
-            db[0].servers[config[i]].node_impl.node.my_index == db[0].servers[config[j]].node_impl.node.my_index ==> i == j
-        );
-
-        assert forall index :: 0 <= index < |config| ==> int(db[0].servers[config[index]].node_impl.node.my_index) == index; //!
-        assert forall index :: 0 <= index < |config| ==> NodeInit(db[0].servers[config[index]].node, index, config);
-        assert forall index :: 0 <= index < |config| ==> db[0].servers[config[index]].node.my_index == index;
-        assert forall index :: 0 <= index < |config| ==> lb[0].servers[config[index]].my_index == index;
-        assert forall index :: 0 <= index < |config| ==> NodeInit(lb[0].servers[config[index]], index, config);
     }
 
 
