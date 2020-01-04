@@ -22,6 +22,11 @@ module Main_i refines Main_s {
     // import opened RefinementProof_i
     import opened MarshallProof_i
 
+
+    /*************************************************************************************
+    * Main: Prove that the implementation conforms to the spec
+    *************************************************************************************/
+
     lemma RefinementProof(
         config:ConcreteConfiguration, db:seq<DS_State>) returns (sb:seq<ServiceState>)
         /*
@@ -34,10 +39,14 @@ module Main_i refines Main_s {
         ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
         */
     {
-        var lb := ImplToProtocol(config, db);
-        sb := ProtocolToSpec(config, lb);
+        // var lb := ImplToProtocol(config, db);
+        // sb := ProtocolToSpec(config, lb);
     }
 
+
+    /*************************************************************************************
+    * Prove that the implementation conforms to the protocol
+    *************************************************************************************/
 
  
     /* Takes a sequence of impolementation states and returns a corresponding sequence of 
@@ -56,10 +65,110 @@ module Main_i refines Main_s {
     {
         // FIRST CONSTRUCT THE INITIAL PROTOCOL STATE
         // Construct LS_State.environment for initial state
-        var sentPackets := set p | p in db[0].environment.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-        var hostInfo := convertHostInfo(db[0].environment.hostInfo);
+        var env := convertEnv(db[0].environment);
+
+        // Construct LS_State.servers for initial state
+        var servers :=   map s | s in db[0].servers :: db[0].servers[s].node;
+
+        lb := [LS_State(env, servers)];
+        
+         // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
+        assert forall e :: e in config <==> e in db[0].servers;
+        reveal_SeqIsUnique();
+        assert SeqIsUnique(config);
+        // Make sure LS_Init is true
+        assert LS_Init(lb[0], config); 
+
+        // Convince Dafny lb[0]'s environment has a valid NextStep. This contributes to 
+        // proving Environment_Next(lb[0].environment, lb[1].environment)
+        assert forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
+        assert |db| > 1 ==>  DS_Next(db[0], db[1]);
+        assert |db| > 1 ==> LEnvironment_Next(db[0].environment, db[1].environment);
+        assert |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
+
+
+
+        // NOW CONSTRUCT FUTURE PROTOCOL STATES
+        var i := 1;
+        while ( i < |db| )
+            decreases |db| - i;
+            invariant 1 <= i <= |db|;
+            invariant i == |lb|;
+            invariant LS_Init(lb[0], config); 
+            
+            // LS_Next for i = 1 case
+            invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
+            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment);
+            invariant |db| > 1 && i > 1  ==> (
+                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
+                then
+                    LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
+                else
+                    lb[1].servers == lb[0].servers //!
+            );
+
+
+            invariant i > 1 ==> LS_Next(lb[0], lb[1]);
+
+            // LS_Next for i > 1 case
+            invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]); //!
+        {
+            // Construct LS_State.environment
+            var env := convertEnv(db[i].environment);
+
+            // Construct LS_State.servers
+            var servers :=   map s | s in db[i].servers :: db[i].servers[s].node;
+
+            // Create and append new LS_State
+            lb := lb + [LS_State(env, servers)];
+
+            // // Convince Dafny that LS_Next(lb[0], lb[1])
+            assert |db| > 0 ==> LEnvironment_Next(db[0].environment, db[1].environment);
+            assert IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
+            assert match lb[0].environment.nextStep {
+                case LEnvStepHostIos(actor, ios) => LEnvironment_PerformIos(lb[0].environment, lb[1].environment, actor, ios)
+                case LEnvStepDeliverPacket(p) => LEnvironment_Stutter(lb[0].environment, lb[1].environment) // this is only relevant for synchrony
+                case LEnvStepAdvanceTime => LEnvironment_AdvanceTime(lb[0].environment, lb[1].environment)
+                case LEnvStepStutter => LEnvironment_Stutter(lb[0].environment, lb[1].environment)
+            };
+            assert LEnvironment_Next(lb[0].environment, lb[1].environment);
+            i := i + 1;
+        }
+
+        // Make sure LS_Next is true, and we are done
+        assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
+    }
+
+    /* Helper: Takes a DS_State environment and transforms it into a LS_State environment
+    */
+    lemma convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) returns (e2: LEnvironment<EndPoint, LockMessage>)
+        requires IsValidLEnvStep(e1, e1.nextStep)
+
+        // Ensure construction is correct
+        // ensures e2.time == e1.time;
+        // ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+        // ensures e2.hostInfo == convertHostInfo(e1.hostInfo);
+        // ensures e1.nextStep.LEnvStepHostIos? ==> (
+        //     e2.nextStep == LEnvStepHostIos(e1.nextStep.actor, convertLEnvStepHostIos(e1.nextStep.ios))
+        // );
+        // ensures e1.nextStep.LEnvStepDeliverPacket? ==> (
+        //     e2.nextStep == LEnvStepDeliverPacket(LPacket(e1.nextStep.p.dst, e1.nextStep.p.src, AbstractifyCMessage(DemarshallData(e1.nextStep.p.msg))))
+        // );
+        // ensures e1.nextStep.LEnvStepAdvanceTime? ==> (
+        //     e2.nextStep == LEnvStepAdvanceTime()
+        // );
+        // ensures e1.nextStep.LEnvStepStutter? ==> (
+        //     e2.nextStep == LEnvStepStutter()
+        // );
+        
+        // // Ensure predicates are maintained
+        // ensures LEnvironment_Init(e1) ==> LEnvironment_Init(e2);
+        // ensures IsValidLEnvStep(e2, e2.nextStep);
+    {
+        var sentPackets := set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+        var hostInfo := convertHostInfo(e1.hostInfo);
         var nextStep : LEnvStep<EndPoint, LockMessage>;
-        match db[0].environment.nextStep  {
+        match e1.nextStep  {
             // Construct environment.nextStep
             case LEnvStepHostIos(actor, ios)    => 
             {
@@ -76,83 +185,10 @@ module Main_i refines Main_s {
             case LEnvStepStutter                => 
                 nextStep := LEnvStepStutter();
         }
-        var env := LEnvironment(db[0].environment.time,
-                                sentPackets,
-                                hostInfo,
-                                nextStep);
-
-        // Construct LS_State.servers for initial state
-        var servers :=   map s | s in db[0].servers :: db[0].servers[s].node;
-
-        lb := [LS_State(env, servers)];
-        
-         // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
-        assert forall e :: e in config <==> e in db[0].servers;
-        reveal_SeqIsUnique();
-        assert SeqIsUnique(config);
-        // Make sure LS_Init is true
-        assert LS_Init(lb[0], config); 
-
-        // NOW CONSTRUCT FUTURE PROTOCOL STATES
-        var i := 1;
-        while ( i < |db| )
-            decreases |db| - i;
-            invariant 1 <= i <= |db|;
-            invariant i == |lb|;
-            invariant LS_Init(lb[0], config); 
-            
-            // LS_Next for i = 1 case
-            invariant i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); //!
-            invariant i > 1 ==> (
-                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
-                then
-                    LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
-                else
-                    lb[1].servers == lb[0].servers //!
-            );
-
-
-            invariant i > 1 ==> LS_Next(lb[0], lb[1]);
-
-            // LS_Next for i > 1 case
-            invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]);
-        {
-            // Construct LS_State.environment
-            var sentPackets := set p | p in db[i].environment.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-            var hostInfo := convertHostInfo(db[i].environment.hostInfo);
-            var nextStep : LEnvStep<EndPoint, LockMessage>;
-            match db[i].environment.nextStep  {
-                // Construct environment.nextStep
-                case LEnvStepHostIos(actor, ios)    => 
-                {
-                    var new_ios := convertLEnvStepHostIos(ios);
-                    nextStep := LEnvStepHostIos(actor, new_ios);
-                }
-                case LEnvStepDeliverPacket(p)       => 
-                {
-                    var new_packet := LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-                    nextStep := LEnvStepDeliverPacket(new_packet);
-                }
-                case LEnvStepAdvanceTime            => 
-                    nextStep := LEnvStepAdvanceTime();
-                case LEnvStepStutter                => 
-                    nextStep := LEnvStepStutter();
-            }
-            var env := LEnvironment(db[i].environment.time,
-                                    sentPackets,
-                                    hostInfo,
-                                    nextStep);
-
-            // Construct LS_State.servers
-            var servers :=   map s | s in db[i].servers :: db[i].servers[s].node;
-
-            // Create and append new LS_State
-            lb := lb + [LS_State(env, servers)];
-            i := i + 1;
-        }
-
-        // Make sure LS_Next is true, and we are done
-        assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
+        e2 := LEnvironment(e1.time,
+                            sentPackets,
+                            hostInfo,
+                            nextStep);
     }
 
 
@@ -217,64 +253,65 @@ module Main_i refines Main_s {
 
 
 
-    /* Helper: Takes a seq<LPacket<EndPoint, seq<byte>>> belonging to a ds state and 
-    returns a corresponding seq<LPacket<EndPoint, LockMessage>> belonging 
-    to a ls state */
-    lemma byteSeqToLockMessageSeq(byte_seq:seq<LPacket<EndPoint, seq<byte>>>) returns (lock_msg_seq:seq<LPacket<EndPoint, LockMessage>>)
+    /* Proof: Prove that byteSeqToLockMessageSeq function is correct */
+    lemma byteSeqToLockMessageSeqLemma(byte_seq:seq<LPacket<EndPoint, seq<byte>>>, lock_msg_seq:seq<LPacket<EndPoint, LockMessage>>)
+        requires lock_msg_seq == byteSeqToLockMessageSeq(byte_seq);
         ensures |byte_seq| == |lock_msg_seq|;
         ensures forall i :: 0 <= i < |byte_seq| ==> byte_seq[i].dst == lock_msg_seq[i].dst;
         ensures forall i :: 0 <= i < |byte_seq| ==> byte_seq[i].src == lock_msg_seq[i].src;
         ensures forall i :: 0 <= i < |byte_seq| ==> AbstractifyCMessage(DemarshallData(byte_seq[i].msg)) == lock_msg_seq[i].msg;
     {
-        lock_msg_seq := [];
-        var i := 0;
-        while (i < |byte_seq|) 
-            decreases |byte_seq| - i;
-            invariant 0 <= i <= |byte_seq|;
-            invariant |lock_msg_seq| == i;
-            invariant forall k :: 0 <= k < i ==> byte_seq[k].dst == lock_msg_seq[k].dst;
-            invariant forall k :: 0 <= k < i ==> byte_seq[k].src == lock_msg_seq[k].src;
-            invariant forall k :: 0 <= k < i ==> AbstractifyCMessage(DemarshallData(byte_seq[k].msg)) == lock_msg_seq[k].msg;
-        {
-            var next_packet := LPacket(byte_seq[i].dst, byte_seq[i].src, AbstractifyCMessage(DemarshallData(byte_seq[i].msg)));
-            lock_msg_seq := lock_msg_seq + [next_packet];
-            i := i+1;
+        if (|byte_seq| == 0) {
+            assert |lock_msg_seq| == 0;
+        } else {
+            byteSeqToLockMessageSeqLemma(byte_seq[1..], lock_msg_seq[1..]);
         }
-        assert i == |lock_msg_seq| == |byte_seq|;
     }
 
-    /* Helper: Takes a hostInfo:map<EndPoint, LHostInfo<EndPoint, seq<byte>>> belonging 
-    to a ds state and returns a corresponding hostInfo:map<EndPoint, LHostInfo<EndPoint, LockMessage>> 
-    belonging to a ls state */
-    lemma convertHostInfo(h1: map<EndPoint, LHostInfo<EndPoint, seq<byte>>>) returns (h2: map<EndPoint, LHostInfo<EndPoint, LockMessage>>) 
-        ensures |h1| == |h2|; 
-        ensures forall ep :: ep in h1 ==> ep in h2;
-        ensures forall ep :: ep in h1 ==> |h1[ep].queue| == |h2[ep].queue|; 
-        ensures forall ep :: ep in h1 ==> (forall i :: 0 <= i < |h1[ep].queue| ==> h1[ep].queue[i].dst == h2[ep].queue[i].dst);
-        ensures forall ep :: ep in h1 ==> (forall i :: 0 <= i < |h1[ep].queue| ==> h1[ep].queue[i].src == h2[ep].queue[i].src);
-        ensures forall ep :: ep in h1 ==> (forall i :: 0 <= i < |h1[ep].queue| ==> AbstractifyCMessage(DemarshallData(h1[ep].queue[i].msg)) == h2[ep].queue[i].msg);
+    /* Helper: Takes a seq<LPacket<EndPoint, seq<byte>>> belonging to a ds state and 
+    * returns a corresponding seq<LPacket<EndPoint, LockMessage>> belonging 
+    * to a ls state */
+    function byteSeqToLockMessageSeq(byte_seq:seq<LPacket<EndPoint, seq<byte>>>) : seq<LPacket<EndPoint, LockMessage>> 
     {
-        h2 := map[];
-        var keys := h1.Keys;
-        while keys != {}
-            decreases keys
-            invariant h2.Keys <= h1.Keys;
-            invariant keys + h2.Keys == h1.Keys;
-            invariant |keys| + |h2| == |h1|;
-            invariant forall ep :: ep in h1 && !(ep in keys) ==> ep in h2;
-            invariant forall ep :: ep in h2 ==> |h1[ep].queue| == |h2[ep].queue|;
-            invariant forall ep :: ep in h2 ==> (forall i :: 0 <= i < |h2[ep].queue| ==> h1[ep].queue[i].dst == h2[ep].queue[i].dst); 
-            invariant forall ep :: ep in h2 ==> (forall i :: 0 <= i < |h2[ep].queue| ==> h1[ep].queue[i].src == h2[ep].queue[i].src); 
-            invariant forall ep :: ep in h2 ==> (forall i :: 0 <= i < |h2[ep].queue| ==> AbstractifyCMessage(DemarshallData(h1[ep].queue[i].msg)) == h2[ep].queue[i].msg); 
-        {
-            var k :| k in keys;
-            var lock_msg_queue := byteSeqToLockMessageSeq(h1[k].queue);
-            h2 := h2[k := LHostInfo(lock_msg_queue)];
-            keys := keys - {k};
+        if (|byte_seq| == 0) then
+            []
+        else
+            [LPacket(byte_seq[0].dst, byte_seq[0].src, AbstractifyCMessage(DemarshallData(byte_seq[0].msg)))] + byteSeqToLockMessageSeq(byte_seq[1..])
+    }
+
+    /* Proof: Prove that convertHostInfo function is correct */
+    lemma convertHostInfoLemma(h1: map<EndPoint, LHostInfo<EndPoint, seq<byte>>>, h2: map<EndPoint, LHostInfo<EndPoint, LockMessage>>)
+        requires h2 == convertHostInfo(h1);
+        ensures forall ep :: ep in h1 <==> ep in h2;
+        ensures |h1| == |h2|; 
+        ensures forall ep :: ep in h2 ==> h2[ep].queue == byteSeqToLockMessageSeq(h1[ep].queue); 
+    {
+        if |h1| == 0 {
+            assert |h2| == |h1|;
+        } else {
+            var k :| k in h1;
+            assert k in h2;
+            var h1' := map ep | ep in h1 && ep != k :: h1[ep];
+            var h2' := map ep | ep in h2 && ep != k :: h2[ep];
+            assert h1'.Keys == h1.Keys - {k};
+            assert h2'.Keys == h2.Keys - {k};
+            assert |h1'.Keys| == |h1.Keys| - 1;
+            assert |h2'.Keys| == |h2.Keys| - 1;
+            convertHostInfoLemma(h1', h2');
         }
     }
 
+    function convertHostInfo(h1: map<EndPoint, LHostInfo<EndPoint, seq<byte>>>) : map<EndPoint, LHostInfo<EndPoint, LockMessage>> {
+        map ep : EndPoint | ep in h1 :: LHostInfo(byteSeqToLockMessageSeq(h1[ep].queue))
+    }
 
+
+
+
+    /*************************************************************************************
+    * Prove that the protocol conforms to the spec
+    *************************************************************************************/
+    
     lemma ProtocolToSpec(config:ConcreteConfiguration, lb:seq<LS_State>) returns (sb:seq<ServiceState>)
         // requires |lb| > 0;
         // requires LS_Init(lb[0], config);
