@@ -192,65 +192,41 @@ module Main_i refines Main_s {
     }
 
 
-    /* Helper: Takes a seq<LIoOp<EndPoint, seq<byte>>> belonging to a ds state and returns
-    a corresponding seq<LIoOp<EndPoint, LockMessage>> belonging to an ls state 
-    */
-    lemma convertLEnvStepHostIos(s1: seq<LIoOp<EndPoint, seq<byte>>>) returns (s2: seq<LIoOp<EndPoint, LockMessage>>)
+    /* Proof: Prove that convertLEnvStepHostIos function is correct */
+    lemma convertLEnvStepHostIosLemma(s1: seq<LIoOp<EndPoint, seq<byte>>>, s2: seq<LIoOp<EndPoint, LockMessage>>)
+        requires s2 == convertLEnvStepHostIos(s1);
         ensures |s1| == |s2|;
         ensures forall i :: 0 <= i < |s1| ==> (
-            s1[i].LIoOpSend? ==> s2[i] == LIoOpSend(LPacket(s1[i].s.dst, s1[i].s.src, AbstractifyCMessage(DemarshallData(s1[i].s.msg))))
+            match s1[i] 
+            case LIoOpSend(s)               =>
+                s2[i] == LIoOpSend(LPacket(s.dst, s.src, AbstractifyCMessage(DemarshallData(s.msg))))
+            case LIoOpReceive(r)            =>
+                s2[i] == LIoOpReceive(LPacket(r.dst, r.src, AbstractifyCMessage(DemarshallData(r.msg))))
+            case LIoOpTimeoutReceive()      =>
+                s2[i] == LIoOpTimeoutReceive()
+            case LIoOpReadClock(t)          =>
+                s2[i] == LIoOpReadClock(t)
         );
-        ensures forall i :: 0 <= i < |s1| ==> (
-            s1[i].LIoOpReceive? ==> s2[i] == LIoOpReceive(LPacket(s1[i].r.dst, s1[i].r.src, AbstractifyCMessage(DemarshallData(s1[i].r.msg))))
-        );
-        ensures forall i :: 0 <= i < |s1| ==> (
-            s1[i].LIoOpTimeoutReceive? ==> s2[i] == LIoOpTimeoutReceive()
-        );
-        ensures forall i :: 0 <= i < |s1| ==> (
-            s1[i].LIoOpReadClock? ==> s2[i] == LIoOpReadClock(s1[i].t)
-        );
-  {
-        s2 := [];
-        var i := 0;
-        while (i < |s1|)
-            decreases |s1| - i;
-            invariant 0 <= i <= |s1|;
-            invariant i == |s2|;
-            invariant forall k :: 0 <= k < i ==> (
-                s1[k].LIoOpSend? ==> s2[k] == LIoOpSend(LPacket(s1[k].s.dst, s1[k].s.src, AbstractifyCMessage(DemarshallData(s1[k].s.msg))))
-            );
-            invariant forall k :: 0 <= k < i ==> (
-                s1[k].LIoOpReceive? ==> s2[k] == LIoOpReceive(LPacket(s1[k].r.dst, s1[k].r.src, AbstractifyCMessage(DemarshallData(s1[k].r.msg))))
-            );
-            invariant forall k :: 0 <= k < i ==> (
-                s1[k].LIoOpTimeoutReceive? ==> s2[k] == LIoOpTimeoutReceive()
-            );
-            invariant forall k :: 0 <= k < i ==> (
-                s1[k].LIoOpReadClock? ==> s2[k] == LIoOpReadClock(s1[k].t)
-            );
-        {
-            match s1[i] {
-                case LIoOpSend(s)               =>
-                {
-                    s2 := s2 + [LIoOpSend(LPacket(s.dst, s.src, AbstractifyCMessage(DemarshallData(s.msg))))];
-                }
-                case LIoOpReceive(r)            =>
-                {
-                    s2 := s2 + [LIoOpReceive(LPacket(r.dst, r.src, AbstractifyCMessage(DemarshallData(r.msg))))];
-                }
-                case LIoOpTimeoutReceive()      =>
-                {
-                    s2 := s2 + [LIoOpTimeoutReceive()];
-                }
-                case LIoOpReadClock(t)          =>
-                {
-                    s2 := s2 + [LIoOpReadClock(t)];
-                }
-            }
-            i := i + 1;
+    {
+        if |s1| == 0 {
+            assert |s2| == 0;
+        } else {
+            convertLEnvStepHostIosLemma(s1[1..], s2[1..]);
         }
     }
 
+    function convertLEnvStepHostIos(s1: seq<LIoOp<EndPoint, seq<byte>>>) : seq<LIoOp<EndPoint, LockMessage>> {
+        if |s1| == 0 then [] else
+        match s1[0] 
+            case LIoOpSend(s)               =>
+                [LIoOpSend(LPacket(s.dst, s.src, AbstractifyCMessage(DemarshallData(s.msg))))] + convertLEnvStepHostIos(s1[1..])
+            case LIoOpReceive(r)            =>
+                [LIoOpReceive(LPacket(r.dst, r.src, AbstractifyCMessage(DemarshallData(r.msg))))] + convertLEnvStepHostIos(s1[1..])
+            case LIoOpTimeoutReceive()      =>
+                [LIoOpTimeoutReceive()] + convertLEnvStepHostIos(s1[1..])
+            case LIoOpReadClock(t)          =>
+                [LIoOpReadClock(t)] + convertLEnvStepHostIos(s1[1..])
+    }
 
 
     /* Proof: Prove that byteSeqToLockMessageSeq function is correct */
