@@ -171,21 +171,12 @@ module Main_i refines Main_s {
                             hostInfo,
                             nextStep);
 
-
         // Convince Dafny that IsValidLEnvStep(e2, e2.nextStep)
-        assert e2.nextStep.LEnvStepStutter? ==> IsValidLEnvStep(e2, e2.nextStep);
-        assert e2.nextStep.LEnvStepAdvanceTime? ==> IsValidLEnvStep(e2, e2.nextStep);
-        assert e2.nextStep.LEnvStepDeliverPacket? ==> IsValidLEnvStep(e2, e2.nextStep);
-
-
-        assert e1.nextStep.LEnvStepHostIos? ==> (
-            forall io :: io in e1.nextStep.ios ==> IsValidLIoOp(io, e1.nextStep.actor, e1)
-        );
         assert e2.nextStep.LEnvStepHostIos? ==> (
-            forall io :: io in e2.nextStep.ios ==> IsValidLIoOp(io, e2.nextStep.actor, e2) //!
+            forall i :: 0<= i < |e2.nextStep.ios| ==> (
+                IsValidLIoOp(e1.nextStep.ios[i], e1.nextStep.actor, e1)
+            )
         );
-        assert e1.nextStep.LEnvStepHostIos? ==> LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
-        assert e2.nextStep.LEnvStepHostIos? ==> LIoOpSeqCompatibleWithReduction(e2.nextStep.ios);
         assert e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
     }
 
