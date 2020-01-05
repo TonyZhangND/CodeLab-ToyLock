@@ -145,50 +145,79 @@ module Main_i refines Main_s {
         requires IsValidLEnvStep(e1, e1.nextStep)
 
         // Ensure construction is correct
-        // ensures e2.time == e1.time;
-        // ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-        // ensures e2.hostInfo == convertHostInfo(e1.hostInfo);
-        // ensures e1.nextStep.LEnvStepHostIos? ==> (
-        //     e2.nextStep == LEnvStepHostIos(e1.nextStep.actor, convertLEnvStepHostIos(e1.nextStep.ios))
-        // );
-        // ensures e1.nextStep.LEnvStepDeliverPacket? ==> (
-        //     e2.nextStep == LEnvStepDeliverPacket(LPacket(e1.nextStep.p.dst, e1.nextStep.p.src, AbstractifyCMessage(DemarshallData(e1.nextStep.p.msg))))
-        // );
-        // ensures e1.nextStep.LEnvStepAdvanceTime? ==> (
-        //     e2.nextStep == LEnvStepAdvanceTime()
-        // );
-        // ensures e1.nextStep.LEnvStepStutter? ==> (
-        //     e2.nextStep == LEnvStepStutter()
-        // );
+        ensures e2.time == e1.time;
+        ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+        ensures e2.hostInfo == convertHostInfo(e1.hostInfo);
+        ensures e2.nextStep == convertNextStep(e1.nextStep);
         
-        // // Ensure predicates are maintained
-        // ensures LEnvironment_Init(e1) ==> LEnvironment_Init(e2);
-        // ensures IsValidLEnvStep(e2, e2.nextStep);
+        // Ensure predicates are maintained
+        ensures LEnvironment_Init(e1) ==> LEnvironment_Init(e2);
+        ensures IsValidLEnvStep(e2, e2.nextStep);
+
     {
         var sentPackets := set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
         var hostInfo := convertHostInfo(e1.hostInfo);
-        var nextStep : LEnvStep<EndPoint, LockMessage>;
-        match e1.nextStep  {
-            // Construct environment.nextStep
-            case LEnvStepHostIos(actor, ios)    => 
-            {
-                var new_ios := convertLEnvStepHostIos(ios);
-                nextStep := LEnvStepHostIos(actor, new_ios);
-            }
-            case LEnvStepDeliverPacket(p)       => 
-            {
-                var new_packet := LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-                nextStep := LEnvStepDeliverPacket(new_packet);
-            }
-            case LEnvStepAdvanceTime            => 
-                nextStep := LEnvStepAdvanceTime();
-            case LEnvStepStutter                => 
-                nextStep := LEnvStepStutter();
+        convertHostInfoLemma(e1.hostInfo, hostInfo);
+        
+        var nextStep := convertNextStep(e1.nextStep);
+        if e1.nextStep.LEnvStepHostIos? {
+            assert LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
+            convertLEnvStepHostIosLemma(e1.nextStep.ios, nextStep.ios);
         }
+        convertNextStepLemma(e1.nextStep, nextStep);
+
         e2 := LEnvironment(e1.time,
                             sentPackets,
                             hostInfo,
                             nextStep);
+
+
+        // Convince Dafny that IsValidLEnvStep(e2, e2.nextStep)
+        assert e2.nextStep.LEnvStepStutter? ==> IsValidLEnvStep(e2, e2.nextStep);
+        assert e2.nextStep.LEnvStepAdvanceTime? ==> IsValidLEnvStep(e2, e2.nextStep);
+        assert e2.nextStep.LEnvStepDeliverPacket? ==> IsValidLEnvStep(e2, e2.nextStep);
+
+
+        assert e1.nextStep.LEnvStepHostIos? ==> (
+            forall io :: io in e1.nextStep.ios ==> IsValidLIoOp(io, e1.nextStep.actor, e1)
+        );
+        assert e2.nextStep.LEnvStepHostIos? ==> (
+            forall io :: io in e2.nextStep.ios ==> IsValidLIoOp(io, e2.nextStep.actor, e2) //!
+        );
+        assert e1.nextStep.LEnvStepHostIos? ==> LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
+        assert e2.nextStep.LEnvStepHostIos? ==> LIoOpSeqCompatibleWithReduction(e2.nextStep.ios);
+        assert e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
+    }
+
+    
+    /* Proof: Prove that convertLEnvStepHostIos function is correct */
+    lemma convertNextStepLemma(ns1: LEnvStep<EndPoint, seq<byte>>, ns2: LEnvStep<EndPoint, LockMessage>) 
+        requires ns2 == convertNextStep(ns1);
+        ensures match ns1
+            case LEnvStepHostIos(actor, ios)    => 
+                ns2 == LEnvStepHostIos(actor, convertLEnvStepHostIos(ios))
+            case LEnvStepDeliverPacket(p)       => 
+                ns2 == LEnvStepDeliverPacket(LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))))
+            case LEnvStepAdvanceTime            => 
+                ns2 == LEnvStepAdvanceTime()
+            case LEnvStepStutter                => 
+                ns2 == LEnvStepStutter()
+    {}
+
+
+    /* Helper: Takes a LEnvStep<EndPoint, seq<byte>> belonging to a ds state and 
+    * returns a corresponding LEnvStep<EndPoint, LockMessage> belonging 
+    * to a ls state */
+    function convertNextStep(ns: LEnvStep<EndPoint, seq<byte>>) : LEnvStep<EndPoint, LockMessage> {
+        match ns
+            case LEnvStepHostIos(actor, ios)    => 
+                LEnvStepHostIos(actor, convertLEnvStepHostIos(ios))
+            case LEnvStepDeliverPacket(p)       => 
+                LEnvStepDeliverPacket(LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))))
+            case LEnvStepAdvanceTime            => 
+                LEnvStepAdvanceTime()
+            case LEnvStepStutter                => 
+                LEnvStepStutter()
     }
 
 
@@ -207,6 +236,9 @@ module Main_i refines Main_s {
             case LIoOpReadClock(t)          =>
                 s2[i] == LIoOpReadClock(t)
         );
+
+        // Some nice properties
+        ensures LIoOpSeqCompatibleWithReduction(s1) ==> LIoOpSeqCompatibleWithReduction(s2);
     {
         if |s1| == 0 {
             assert |s2| == 0;
@@ -215,6 +247,9 @@ module Main_i refines Main_s {
         }
     }
 
+    /* Helper: Takes a seq<LIoOp<EndPoint, seq<byte>>> belonging to a ds state and 
+    * returns a corresponding seq<LIoOp<EndPoint, LockMessage>> belonging 
+    * to a ls state */
     function convertLEnvStepHostIos(s1: seq<LIoOp<EndPoint, seq<byte>>>) : seq<LIoOp<EndPoint, LockMessage>> {
         if |s1| == 0 then [] else
         match s1[0] 
