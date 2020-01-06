@@ -77,14 +77,8 @@ module Main_i refines Main_s {
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
         // Make sure LS_Init is true
-        assert LS_Init(lb[0], config); 
+        // assert LS_Init(lb[0], config); 
 
-        // Convince Dafny lb[0]'s environment has a valid NextStep. This contributes to 
-        // proving Environment_Next(lb[0].environment, lb[1].environment)
-        assert forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
-        assert |db| > 1 ==>  DS_Next(db[0], db[1]);
-        assert |db| > 1 ==> LEnvironment_Next(db[0].environment, db[1].environment);
-        assert |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
 
         // NOW CONSTRUCT FUTURE PROTOCOL STATES
         var i := 1;
@@ -99,7 +93,6 @@ module Main_i refines Main_s {
             invariant forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
 
             // LS_Next for i = 1 case
-            invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
             invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); 
             invariant |db| > 1 && i > 1  ==> (
                 // non-env stuff not so good
@@ -107,7 +100,7 @@ module Main_i refines Main_s {
                 then
                     LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
                 else
-                    lb[1].servers == lb[0].servers  //!
+                    lb[1].servers == lb[0].servers  
             );
             invariant i > 1 ==> LS_Next(lb[0], lb[1]);  // Final proof wanted
 
