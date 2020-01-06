@@ -72,7 +72,7 @@ module Main_i refines Main_s {
 
         lb := [LS_State(env, servers)];
         
-         // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
+        // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
         assert forall e :: e in config <==> e in db[0].servers;
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
@@ -98,26 +98,25 @@ module Main_i refines Main_s {
             
             // Stuff I know about db
             invariant forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
-            invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
 
 
             // LS_Next for i = 1 case
             invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
-            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment);
+            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); // Env stuff is good
             invariant |db| > 1 && i > 1  ==> (
+                // non-env stuff not so good
                 if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
                 then
                     LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
                 else
-                    lb[1].servers == lb[0].servers 
+                    lb[1].servers == lb[0].servers  //!
             );
-            invariant i > 1 ==> LS_Next(lb[0], lb[1]);
+            invariant i > 1 ==> LS_Next(lb[0], lb[1]);  // Final proof wanted
 
             // LS_Next for i > 1 case
             invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]); //!
         {
             // Construct LS_State.environment
-            assert IsValidLEnvStep(db[i].environment, db[i].environment.nextStep);
             var env := convertEnv(db[i].environment);
 
             // Construct LS_State.servers
@@ -128,8 +127,8 @@ module Main_i refines Main_s {
 
             // // Convince Dafny that LS_Next(lb[0], lb[1])
             assert |db| > 0 ==> LEnvironment_Next(db[0].environment, db[1].environment);
-            assert IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
-            assert match lb[0].environment.nextStep {
+            assert |db| > 0 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
+            assert |db| > 0 ==> match lb[0].environment.nextStep {
                 case LEnvStepHostIos(actor, ios) => LEnvironment_PerformIos(lb[0].environment, lb[1].environment, actor, ios)
                 case LEnvStepDeliverPacket(p) => LEnvironment_Stutter(lb[0].environment, lb[1].environment) // this is only relevant for synchrony
                 case LEnvStepAdvanceTime => LEnvironment_AdvanceTime(lb[0].environment, lb[1].environment)
@@ -143,9 +142,24 @@ module Main_i refines Main_s {
         assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
     }
 
+    lemma envNextStepGood(
+        d1: LEnvironment<EndPoint, seq<byte>>, 
+        d2: LEnvironment<EndPoint, seq<byte>>,
+        l1: LEnvironment<EndPoint, LockMessage>,
+        l2:LEnvironment<EndPoint, LockMessage>
+        )
+        requires LEnvironment_Next(d1, d2);
+        requires l1 == convertEnv(d1);
+        requires l2 == convertEnv(d2);
+        ensures LEnvironment_Next(l1, l2);
+
+        {}
+
+
     /* Helper: Takes a DS_State environment and transforms it into a LS_State environment
     */
-    lemma convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) returns (e2: LEnvironment<EndPoint, LockMessage>)
+    lemma convertEnvLemma(e1: LEnvironment<EndPoint, seq<byte>>, e2: LEnvironment<EndPoint, LockMessage>)
+        requires e2 == convertEnv(e1);
         // Ensure construction is correct
         ensures e2.time == e1.time;
         ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
@@ -157,29 +171,26 @@ module Main_i refines Main_s {
         ensures IsValidLEnvStep(e1, e1.nextStep) ==> IsValidLEnvStep(e2, e2.nextStep);
 
     {
-        var sentPackets := set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
-        var hostInfo := convertHostInfo(e1.hostInfo);
-        convertHostInfoLemma(e1.hostInfo, hostInfo);
-        
-        var nextStep := convertNextStep(e1.nextStep);
+        convertHostInfoLemma(e1.hostInfo, e2.hostInfo);
         if IsValidLEnvStep(e1, e1.nextStep) && e1.nextStep.LEnvStepHostIos? {
             assert LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
-            convertLEnvStepHostIosLemma(e1.nextStep.ios, nextStep.ios);
+            convertLEnvStepHostIosLemma(e1.nextStep.ios, e2.nextStep.ios);
         }
-        convertNextStepLemma(e1.nextStep, nextStep);
+        convertNextStepLemma(e1.nextStep, e2.nextStep);
 
-        e2 := LEnvironment(e1.time,
-                            sentPackets,
-                            hostInfo,
-                            nextStep);
-
-        // Convince Dafny that IsValidLEnvStep(e2, e2.nextStep)
         assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> (
             forall i :: 0<= i < |e2.nextStep.ios| ==> (
                 IsValidLIoOp(e1.nextStep.ios[i], e1.nextStep.actor, e1)
             )
         );
         assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
+    }
+
+    function convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) : LEnvironment<EndPoint, LockMessage> {
+        LEnvironment(e1.time,
+                    set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))),
+                    convertHostInfo(e1.hostInfo),
+                    convertNextStep(e1.nextStep))        
     }
 
     
