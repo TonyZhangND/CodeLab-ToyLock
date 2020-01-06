@@ -96,6 +96,11 @@ module Main_i refines Main_s {
             invariant i == |lb|;
             invariant LS_Init(lb[0], config); 
             
+            // Stuff I know about db
+            invariant forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
+            invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
+
+
             // LS_Next for i = 1 case
             invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
             invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment);
@@ -104,16 +109,15 @@ module Main_i refines Main_s {
                 then
                     LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
                 else
-                    lb[1].servers == lb[0].servers //!
+                    lb[1].servers == lb[0].servers 
             );
-
-
             invariant i > 1 ==> LS_Next(lb[0], lb[1]);
 
             // LS_Next for i > 1 case
             invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]); //!
         {
             // Construct LS_State.environment
+            assert IsValidLEnvStep(db[i].environment, db[i].environment.nextStep);
             var env := convertEnv(db[i].environment);
 
             // Construct LS_State.servers
@@ -142,8 +146,6 @@ module Main_i refines Main_s {
     /* Helper: Takes a DS_State environment and transforms it into a LS_State environment
     */
     lemma convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) returns (e2: LEnvironment<EndPoint, LockMessage>)
-        requires IsValidLEnvStep(e1, e1.nextStep)
-
         // Ensure construction is correct
         ensures e2.time == e1.time;
         ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
@@ -152,7 +154,7 @@ module Main_i refines Main_s {
         
         // Ensure predicates are maintained
         ensures LEnvironment_Init(e1) ==> LEnvironment_Init(e2);
-        ensures IsValidLEnvStep(e2, e2.nextStep);
+        ensures IsValidLEnvStep(e1, e1.nextStep) ==> IsValidLEnvStep(e2, e2.nextStep);
 
     {
         var sentPackets := set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
@@ -160,7 +162,7 @@ module Main_i refines Main_s {
         convertHostInfoLemma(e1.hostInfo, hostInfo);
         
         var nextStep := convertNextStep(e1.nextStep);
-        if e1.nextStep.LEnvStepHostIos? {
+        if IsValidLEnvStep(e1, e1.nextStep) && e1.nextStep.LEnvStepHostIos? {
             assert LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
             convertLEnvStepHostIosLemma(e1.nextStep.ios, nextStep.ios);
         }
@@ -172,12 +174,12 @@ module Main_i refines Main_s {
                             nextStep);
 
         // Convince Dafny that IsValidLEnvStep(e2, e2.nextStep)
-        assert e2.nextStep.LEnvStepHostIos? ==> (
+        assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> (
             forall i :: 0<= i < |e2.nextStep.ios| ==> (
                 IsValidLIoOp(e1.nextStep.ios[i], e1.nextStep.actor, e1)
             )
         );
-        assert e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
+        assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
     }
 
     
