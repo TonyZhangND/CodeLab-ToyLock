@@ -71,13 +71,13 @@ module Main_i refines Main_s {
         var servers :=   map s | s in db[0].servers :: db[0].servers[s].node;
 
         lb := [LS_State(env, servers)];
+        convertEnvLemma(db[0].environment, lb[0].environment);
+        assert lb[0].environment == convertEnv(db[0].environment);
         
         // Convince Dafny: for all ep in config, there exists a unique i such that config[i] == ep
         assert forall e :: e in config <==> e in db[0].servers;
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
-        // Make sure LS_Init is true
-        // assert LS_Init(lb[0], config); 
 
 
         // NOW CONSTRUCT FUTURE PROTOCOL STATES
@@ -93,15 +93,6 @@ module Main_i refines Main_s {
             invariant forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
 
             // LS_Next for i = 1 case
-            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); 
-            invariant |db| > 1 && i > 1  ==> (
-                // non-env stuff not so good
-                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
-                then
-                    LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios) //!
-                else
-                    lb[1].servers == lb[0].servers  
-            );
             invariant i > 1 ==> LS_Next(lb[0], lb[1]);  // Final proof wanted
 
             // LS_Next for i > 1 case
@@ -117,11 +108,54 @@ module Main_i refines Main_s {
             // Convince Dafny that LS_Next(lb[0], lb[1])
             if |db| > 1 && i > 1 {
                 envNextStepGood(db[0].environment, db[1].environment, lb[0].environment, lb[1].environment);
+                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers {
+
+                    // Convince Dafny of NodeNext(lb[0].servers[id], lb[1].servers[id], ios);
+                    LS_NextOneServerGood(
+                        db[0], db[1], db[0].environment.nextStep.actor, db[0].environment.nextStep.ios,
+                        lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios
+                    );                   
+                    assert LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios);
+                    assert LS_Next(lb[0], lb[1]);
+                }
             }
         }
 
-        // Make sure LS_Next is true, and we are done
+        // Make sure LS_Next is true forall i, and we are done
         assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
+    }
+
+
+    lemma LS_NextOneServerGood(ds: DS_State, ds': DS_State, did:EndPoint, dios:seq<LIoOp<EndPoint,seq<byte>>>, 
+                     ls:LS_State, ls':LS_State, lid:EndPoint, lios:seq<LockIo>) 
+        requires did in ds.servers;
+        requires DS_NextOneServer(ds, ds', did, dios);
+        requires ds.environment.nextStep.LEnvStepHostIos? && ds.environment.nextStep.actor in ds.servers;
+        requires did == ds.environment.nextStep.actor;
+        requires dios == ds.environment.nextStep.ios;
+        requires ls == LS_State(convertEnv(ds.environment), map s | s in ds.servers :: ds.servers[s].node);
+        requires ls' == LS_State(convertEnv(ds'.environment), map s | s in ds'.servers :: ds'.servers[s].node);
+        requires ls.environment.nextStep.LEnvStepHostIos? && ls.environment.nextStep.actor in ls.servers;
+        requires lid == ls.environment.nextStep.actor;
+        requires lios == ls.environment.nextStep.ios;
+        requires did == lid;
+        requires lid in ls.servers;
+        ensures LS_NextOneServer(ls, ls', lid, lios);
+    {
+        assert lid in ls'.servers;
+        assert ls'.servers == ls.servers[lid := ls'.servers[lid]];
+
+        assert lios == convertLEnvStepHostIos(dios);
+        convertLEnvStepHostIosLemma(dios, lios);
+
+        // Prove that HostNext(ds.servers[did], ds'.servers[did], dios) implies
+        // NodeNext(ls.servers[lid], ls'.servers[lid], lios);
+        assert HostNext(ds.servers[did], ds'.servers[did], dios);
+
+        var s  := ls.servers[lid];
+        var s' := ls'.servers[lid];
+        assert NodeNext(ds.servers[did].node, ds'.servers[did].node, AbstractifyRawLogToIos(dios));
+        assert NodeNext(ls.servers[lid], ls'.servers[lid], lios);
     }
 
 
@@ -135,15 +169,15 @@ module Main_i refines Main_s {
         requires LEnvironment_Next(d1, d2);
         requires l1 == convertEnv(d1) && l2 == convertEnv(d2);
         ensures LEnvironment_Next(l1, l2); 
-        {
-            convertEnvLemma(d1, l1);
-            convertEnvLemma(d2, l2);
-            if l1.nextStep.LEnvStepHostIos? {
-                convertNextStepLemma(d1.nextStep, l1.nextStep);
-                convertLEnvStepHostIosLemma(d1.nextStep.ios, l1.nextStep.ios);
-                assert LEnvironment_PerformIos(l1, l2, l1.nextStep.actor, l1.nextStep.ios); 
-            }
+    {
+        convertEnvLemma(d1, l1);
+        convertEnvLemma(d2, l2);
+        if l1.nextStep.LEnvStepHostIos? {
+            convertNextStepLemma(d1.nextStep, l1.nextStep);
+            convertLEnvStepHostIosLemma(d1.nextStep.ios, l1.nextStep.ios);
+            assert LEnvironment_PerformIos(l1, l2, l1.nextStep.actor, l1.nextStep.ios); 
         }
+    }
 
 
     /* Helper: Takes a DS_State environment and transforms it into a LS_State environment
