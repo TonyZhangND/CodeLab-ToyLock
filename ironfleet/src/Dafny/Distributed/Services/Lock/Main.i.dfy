@@ -86,8 +86,6 @@ module Main_i refines Main_s {
         assert |db| > 1 ==> LEnvironment_Next(db[0].environment, db[1].environment);
         assert |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
 
-
-
         // NOW CONSTRUCT FUTURE PROTOCOL STATES
         var i := 1;
         while ( i < |db| )
@@ -98,7 +96,6 @@ module Main_i refines Main_s {
             
             // Stuff I know about db
             invariant forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
-
 
             // LS_Next for i = 1 case
             invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
@@ -142,18 +139,27 @@ module Main_i refines Main_s {
         assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
     }
 
+
+    /* Proof that LEnvironment_Next(d1, d2) ==> LEnvironment_Next(convertEnv(d1), convertEnv(d2)) */
     lemma envNextStepGood(
         d1: LEnvironment<EndPoint, seq<byte>>, 
         d2: LEnvironment<EndPoint, seq<byte>>,
         l1: LEnvironment<EndPoint, LockMessage>,
-        l2:LEnvironment<EndPoint, LockMessage>
+        l2: LEnvironment<EndPoint, LockMessage>
         )
         requires LEnvironment_Next(d1, d2);
-        requires l1 == convertEnv(d1);
-        requires l2 == convertEnv(d2);
-        ensures LEnvironment_Next(l1, l2);
-
-        {}
+        requires l1 == convertEnv(d1) && l2 == convertEnv(d2);
+        ensures LEnvironment_Next(l1, l2); 
+        {
+            assert IsValidLEnvStep(d1, d1.nextStep);
+            convertEnvLemma(d1, l1);
+            convertEnvLemma(d2, l2);
+            if l1.nextStep.LEnvStepHostIos? {
+                convertNextStepLemma(d1.nextStep, l1.nextStep);
+                convertLEnvStepHostIosLemma(d1.nextStep.ios, l1.nextStep.ios);
+                assert LEnvironment_PerformIos(l1, l2, l1.nextStep.actor, l1.nextStep.ios); 
+            }
+        }
 
 
     /* Helper: Takes a DS_State environment and transforms it into a LS_State environment
@@ -194,7 +200,7 @@ module Main_i refines Main_s {
     }
 
     
-    /* Proof: Prove that convertLEnvStepHostIos function is correct */
+    /* Proof: Prove that convertNextStep function is correct */
     lemma convertNextStepLemma(ns1: LEnvStep<EndPoint, seq<byte>>, ns2: LEnvStep<EndPoint, LockMessage>) 
         requires ns2 == convertNextStep(ns1);
         ensures match ns1
