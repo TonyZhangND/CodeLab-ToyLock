@@ -93,13 +93,14 @@ module Main_i refines Main_s {
             invariant 1 <= i <= |db|;
             invariant i == |lb|;
             invariant LS_Init(lb[0], config); 
+            invariant forall k :: 0 <= k < i ==> lb[k].environment == convertEnv(db[k].environment);
             
             // Stuff I know about db
-            invariant forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
+            invariant forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
 
             // LS_Next for i = 1 case
             invariant |db| > 1 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
-            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); // Env stuff is good
+            invariant |db| > 1 && i > 1 ==> LEnvironment_Next(lb[0].environment, lb[1].environment); 
             invariant |db| > 1 && i > 1  ==> (
                 // non-env stuff not so good
                 if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers 
@@ -112,27 +113,18 @@ module Main_i refines Main_s {
 
             // LS_Next for i > 1 case
             invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]); //!
-        {
-            // Construct LS_State.environment
-            var env := convertEnv(db[i].environment);
-
-            // Construct LS_State.servers
-            var servers :=   map s | s in db[i].servers :: db[i].servers[s].node;
+        {         
 
             // Create and append new LS_State
+            var env := convertEnv(db[i].environment);
+            var servers := map s | s in db[i].servers :: db[i].servers[s].node;
             lb := lb + [LS_State(env, servers)];
-
-            // // Convince Dafny that LS_Next(lb[0], lb[1])
-            assert |db| > 0 ==> LEnvironment_Next(db[0].environment, db[1].environment);
-            assert |db| > 0 ==> IsValidLEnvStep(lb[0].environment, lb[0].environment.nextStep);
-            assert |db| > 0 ==> match lb[0].environment.nextStep {
-                case LEnvStepHostIos(actor, ios) => LEnvironment_PerformIos(lb[0].environment, lb[1].environment, actor, ios)
-                case LEnvStepDeliverPacket(p) => LEnvironment_Stutter(lb[0].environment, lb[1].environment) // this is only relevant for synchrony
-                case LEnvStepAdvanceTime => LEnvironment_AdvanceTime(lb[0].environment, lb[1].environment)
-                case LEnvStepStutter => LEnvironment_Stutter(lb[0].environment, lb[1].environment)
-            };
-            assert LEnvironment_Next(lb[0].environment, lb[1].environment);
             i := i + 1;
+
+            // Convince Dafny that LS_Next(lb[0], lb[1])
+            if |db| > 1 && i > 1 {
+                envNextStepGood(db[0].environment, db[1].environment, lb[0].environment, lb[1].environment);
+            }
         }
 
         // Make sure LS_Next is true, and we are done
@@ -151,7 +143,6 @@ module Main_i refines Main_s {
         requires l1 == convertEnv(d1) && l2 == convertEnv(d2);
         ensures LEnvironment_Next(l1, l2); 
         {
-            assert IsValidLEnvStep(d1, d1.nextStep);
             convertEnvLemma(d1, l1);
             convertEnvLemma(d2, l2);
             if l1.nextStep.LEnvStepHostIos? {
