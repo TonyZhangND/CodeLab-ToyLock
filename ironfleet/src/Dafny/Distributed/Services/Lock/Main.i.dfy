@@ -96,6 +96,7 @@ module Main_i refines Main_s {
             var env := convertEnv(db[i].environment);
             var servers := map s | s in db[i].servers :: db[i].servers[s].node;
             lb := lb + [LS_State(env, servers)];
+            assert lb[i].servers == map s | s in db[i].servers :: db[i].servers[s].node;
             i := i + 1;
 
             // Convince Dafny that LS_Next(lb[i-2], lb[i-1])
@@ -375,8 +376,48 @@ module Main_i refines Main_s {
         requires forall i :: 0 <= i < |lb| - 1 ==> LS_Next(lb[i], lb[i+1]);
         ensures  |lb| == |glb|; 
         ensures  GLS_Init(glb[0], config); 
-        ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
-    {}
+        ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);  //!
+    {   
+        var history := [config[0]];
+        glb := [GLS_State(lb[0], history)];
+
+        var i := 1;
+        while (i < |lb|) 
+            decreases |lb| - i;
+            invariant |glb| == i;
+            invariant 1 <= i <= |lb|;
+            invariant GLS_Init(glb[0], config);
+            invariant i < |lb| ==> LS_Next(lb[i-1], lb[i]); 
+            invariant forall k :: 0 <= k < i ==> glb[k].ls == lb[k]; 
+            invariant forall k :: 0 < k < i ==>  GLS_Next(glb[k-1], glb[k]); 
+            invariant history == glb[i-1].history; 
+        {
+            var s' := lb[i];
+            var s := lb[i-1];
+            if (s.environment.nextStep.LEnvStepHostIos? 
+                && s.environment.nextStep.actor in s.servers
+                && NodeGrant(s.servers[s.environment.nextStep.actor], s'.servers[s.environment.nextStep.actor], s.environment.nextStep.ios)
+                && s.servers[s.environment.nextStep.actor].held && s.servers[s.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF)
+            {
+                history := history + [s.servers[s.environment.nextStep.actor].config[(s.servers[s.environment.nextStep.actor].my_index + 1) % |s.servers[s.environment.nextStep.actor].config|]];
+                glb := glb + [GLS_State(lb[i], history)];
+                assert history == glb[i-1].history + [s.servers[s.environment.nextStep.actor].config[(s.servers[s.environment.nextStep.actor].my_index + 1) % |s.servers[s.environment.nextStep.actor].config|]];
+                assert glb[i].history == history;
+            } else {
+                history := history;
+                glb := glb + [GLS_State(lb[i], history)];
+                assert history == glb[i-1].history;
+                assert glb[i].history == glb[i-1].history;
+            }
+            assert glb[i-1].ls == lb[i-1] && glb[i].ls == lb[i];
+            assert LS_Next(glb[i-1].ls, glb[i].ls);
+            assert GLS_Next(glb[i-1], glb[i]);
+            i := i + 1;
+        }
+        assert forall k :: 0 < k < |glb| ==>  GLS_Next(glb[k-1], glb[k]); 
+        assert forall i :: 0 <= i < |glb|-1 ==> 0 < i+1 && i+1 < |glb|;
+        assert forall i :: 0 <= i < |glb|-1 ==>  GLS_Next(glb[i], glb[i+1]);
+    }
 
     
     lemma ProtocolToSpec(config:ConcreteConfiguration, glb:seq<GLS_State>) returns (sb:seq<ServiceState>)
