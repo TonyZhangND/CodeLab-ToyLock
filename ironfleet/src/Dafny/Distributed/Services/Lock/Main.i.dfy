@@ -57,9 +57,10 @@ module Main_i refines Main_s {
         requires SeqIsUnique(config);
         requires |db| > 0;
         requires DS_Init(db[0], config);
-        requires forall i {:trigger DS_Next(db[i], db[i+1])} :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
-        ensures  |db| == |lb|; //
-        ensures  LS_Init(lb[0], config); //
+        // requires forall i {:trigger DS_Next(db[i], db[i+1])} :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
+        requires forall i :: 0 <= i < |db| - 1 ==> DS_Next(db[i], db[i+1]);
+        ensures  |db| == |lb|; 
+        ensures  LS_Init(lb[0], config); 
         ensures  forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
         // ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
     {
@@ -79,7 +80,6 @@ module Main_i refines Main_s {
         reveal_SeqIsUnique();
         assert SeqIsUnique(config);
 
-
         // NOW CONSTRUCT FUTURE PROTOCOL STATES
         var i := 1;
         while ( i < |db| )
@@ -88,44 +88,59 @@ module Main_i refines Main_s {
             invariant i == |lb|;
             invariant LS_Init(lb[0], config); 
             invariant forall k :: 0 <= k < i ==> lb[k].environment == convertEnv(db[k].environment);
-            
-            // Stuff I know about db
-            invariant forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
-
-            // LS_Next for i = 1 case
-            invariant i > 1 ==> LS_Next(lb[0], lb[1]);  // Final proof wanted
-
-            // LS_Next for i > 1 case
-            invariant forall k :: 1 <= k < i-1 ==>  LS_Next(lb[k], lb[k+1]); //!
+            invariant forall k :: 0 <= k < i ==> lb[k].servers == map s | s in db[k].servers :: db[k].servers[s].node;
+            invariant i > 1 ==> LS_Next(lb[0], lb[1]);
+            invariant forall k :: 1 < k < i ==>  LS_Next(lb[k-1], lb[k]); 
         {         
-
             // Create and append new LS_State
             var env := convertEnv(db[i].environment);
             var servers := map s | s in db[i].servers :: db[i].servers[s].node;
             lb := lb + [LS_State(env, servers)];
             i := i + 1;
 
-            // Convince Dafny that LS_Next(lb[0], lb[1])
-            if |db| > 1 && i > 1 {
-                envNextStepGood(db[0].environment, db[1].environment, lb[0].environment, lb[1].environment);
-                if lb[0].environment.nextStep.LEnvStepHostIos? && lb[0].environment.nextStep.actor in lb[0].servers {
-
-                    // Convince Dafny of NodeNext(lb[0].servers[id], lb[1].servers[id], ios);
-                    LS_NextOneServerGood(
-                        db[0], db[1], db[0].environment.nextStep.actor, db[0].environment.nextStep.ios,
-                        lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios
-                    );                   
-                    assert LS_NextOneServer(lb[0], lb[1], lb[0].environment.nextStep.actor, lb[0].environment.nextStep.ios);
-                    assert LS_Next(lb[0], lb[1]);
-                }
-            }
+            // Convince Dafny that LS_Next(lb[i-2], lb[i-1])
+            assert forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
+            assert forall k :: 0 < k < |db| ==> DS_Next(db[k-1], db[k]);
+            var k := i - 1;
+            assert 0 < k < |db|;
+            assert DS_Next(db[k-1], db[k]);
+            assert lb[i-2] == LS_State(convertEnv(db[i-2].environment), map s | s in db[i-2].servers :: db[i-2].servers[s].node);
+            assert lb[i-1] == LS_State(convertEnv(db[i-1].environment), map s | s in db[i-1].servers :: db[i-1].servers[s].node);
+            LS_NextGood(db[i-2], db[i-1], lb[i-2], lb[i-1]);
         }
 
-        // Make sure LS_Next is true forall i, and we are done
+        // FINALLY: Make sure LS_Next is true forall i, and we are done
+        assert forall k :: 0 < k < |lb| ==>  LS_Next(lb[k-1], lb[k]);
         assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
     }
 
+    /* Proof that DS_Next(s, s': DS_State) implies LS_Next(t, t': LS_State) */
+    lemma LS_NextGood(ds: DS_State, ds':DS_State, ls: LS_State, ls': LS_State) 
+        requires DS_Next(ds, ds');
+        requires ls == LS_State(convertEnv(ds.environment), map s | s in ds.servers :: ds.servers[s].node);
+        requires ls' == LS_State(convertEnv(ds'.environment), map s | s in ds'.servers :: ds'.servers[s].node);
+        ensures LS_Next(ls, ls');
+    {
+            envNextStepGood(ds.environment, ds'.environment, ls.environment, ls'.environment);
+            assert LEnvironment_Next(ls.environment, ls'.environment);
+            if ls.environment.nextStep.LEnvStepHostIos? && ls.environment.nextStep.actor in ls.servers {
+                assert ds.environment.nextStep.actor in ds.servers;
+                assert DS_NextOneServer(ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios);
+                LS_NextOneServerGood(
+                    ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios,
+                    ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios
+                );                   
+                assert LS_NextOneServer(ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios);
+            } else {
+                assert ls.servers == ls'.servers;
+            }
+            assert LS_Next(ls, ls');
+    }
 
+
+
+    /* Proof that LS_NextOneServer(ds, ds', did, dios) implies LS_NextOneServer on the 
+    corresponding LS_States */
     lemma LS_NextOneServerGood(ds: DS_State, ds': DS_State, did:EndPoint, dios:seq<LIoOp<EndPoint,seq<byte>>>, 
                      ls:LS_State, ls':LS_State, lid:EndPoint, lios:seq<LockIo>) 
         requires did in ds.servers;
