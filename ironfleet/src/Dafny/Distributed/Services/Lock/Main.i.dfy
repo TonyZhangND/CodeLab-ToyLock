@@ -100,6 +100,7 @@ module Main_i refines Main_s {
 
             // Convince Dafny that LS_Next(lb[i-2], lb[i-1])
             assert forall k :: 0 <= k < |db| - 1 ==> DS_Next(db[k], db[k+1]);
+            assert forall k :: 0 < k < |db| ==> 0 <= k-1 && k-1 < |db|-1; 
             assert forall k :: 0 < k < |db| ==> DS_Next(db[k-1], db[k]);
             var k := i - 1;
             assert 0 < k < |db|;
@@ -111,7 +112,8 @@ module Main_i refines Main_s {
 
         // FINALLY: Make sure LS_Next is true forall i, and we are done
         assert forall k :: 0 < k < |lb| ==>  LS_Next(lb[k-1], lb[k]);
-        assert forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
+        assert forall i :: 0 <= i < |lb| - 1 ==>  i+1 < |lb| && 0 < i+1;
+        assert forall i :: 0 <= i < |lb| - 1 ==> LS_Next(lb[i], lb[i+1]);
     }
 
     /* Proof that DS_Next(s, s': DS_State) implies LS_Next(t, t': LS_State) */
@@ -361,17 +363,28 @@ module Main_i refines Main_s {
 
 
 
-
     /*************************************************************************************
     * Prove that the protocol conforms to the spec
     *************************************************************************************/
+
+    lemma augmentLS(config:ConcreteConfiguration, lb:seq<LS_State>) returns (glb: seq<GLS_State>) 
+        requires |config| > 0;
+        requires SeqIsUnique(config);
+        requires |lb| > 0;
+        requires LS_Init(lb[0], config);
+        requires forall i :: 0 <= i < |lb| - 1 ==> LS_Next(lb[i], lb[i+1]);
+        ensures  |lb| == |glb|; 
+        ensures  GLS_Init(glb[0], config); 
+        ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+    {}
+
     
-    lemma ProtocolToSpec(config:ConcreteConfiguration, lb:seq<LS_State>) returns (sb:seq<ServiceState>)
-        // requires |lb| > 0;
-        // requires LS_Init(lb[0], config);
-        // requires forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
-        // ensures  |lb| == |sb|;
-        // ensures  Service_Init(sb[0], Collections__Maps2_s.mapdomain(lb[0].servers));
+    lemma ProtocolToSpec(config:ConcreteConfiguration, glb:seq<GLS_State>) returns (sb:seq<ServiceState>)
+        // requires |glb| > 0;
+        // requires GLS_Init(glb[0], config);
+        // requires forall i :: 0 <= i < |lb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        // ensures  |glb| == |sb|;
+        // ensures  Service_Init(sb[0], Collections__Maps2_s.mapdomain(glb[0].ls.servers));
         // ensures  forall i {:trigger Service_Next(sb[i], sb[i+1])} :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
         // ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
     {
