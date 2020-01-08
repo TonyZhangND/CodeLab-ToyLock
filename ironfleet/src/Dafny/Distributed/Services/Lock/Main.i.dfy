@@ -63,7 +63,7 @@ module Main_i refines Main_s {
         ensures  |db| == |lb|; 
         ensures  LS_Init(lb[0], config); 
         ensures  forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
-        // ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
+        ensures  forall i :: 0 <= i < |lb| ==> Service_Correspondence_DB_to_LS(db[i].environment.sentPackets, lb[i].environment.sentPackets);
     {
         // FIRST CONSTRUCT THE INITIAL PROTOCOL STATE
         // Construct LS_State.environment for initial state
@@ -379,7 +379,8 @@ module Main_i refines Main_s {
         requires forall i :: 0 <= i < |lb| - 1 ==> LS_Next(lb[i], lb[i+1]);
         ensures  |lb| == |glb|; 
         ensures  GLS_Init(glb[0], config); 
-        ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);  //!
+        ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        ensures  forall i :: 0 <= i < |glb| ==> Service_Correspondence_LS_to_GLS(lb[i].environment.sentPackets, glb[i].ls.environment.sentPackets);
     {   
         var history := [config[0]];
         glb := [GLS_State(lb[0], history)];
@@ -433,7 +434,7 @@ module Main_i refines Main_s {
         ensures  |glb| == |sb|;
         ensures  Service_Init(sb[0], Collections__Maps2_s.mapdomain(glb[0].ls.servers));
         ensures  forall i {:trigger Service_Next(sb[i], sb[i+1])} :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
-        // ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
+        ensures  forall i :: 0 <= i < |glb| ==> Service_Correspondence_GLS_to_SS(glb[i].ls.environment.sentPackets, sb[i]);
     {
         sb := [];
         var i := 0;
@@ -579,5 +580,42 @@ module Main_i refines Main_s {
     /* Helper: Takes a GLS_State and returns a corresponding ServiceState' */
     function GLS_to_Spec(gls: GLS_State) : ServiceState' {
         ServiceState'(Collections__Maps2_s.mapdomain(gls.ls.servers), gls.history)
+    }
+
+
+    /*************************************************************************************
+    * Predicates for proving service correspondence
+    * ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
+    *************************************************************************************/
+
+    predicate Service_Correspondence_DB_to_LS(concretePkts:set<LPacket<EndPoint, seq<byte>>>, concretePkts':set<LPacket<EndPoint, LockMessage>>) 
+    {
+        |concretePkts'| == |concretePkts| 
+        && forall p, epoch :: p in concretePkts && p.msg == MarshallLockMsg(epoch) ==> (  // marshall is int->seq<byte>
+                exists p' :: (
+                    p' in concretePkts' 
+                    && p'.src == p.src 
+                    && p'.dst == p.dst
+                    && p'.msg == AbstractifyCMessage(DemarshallData(p.msg))    
+                    && (p'.msg == Transfer(epoch) || p'.msg == Locked(epoch))
+                )
+        )
+    }
+
+    predicate Service_Correspondence_LS_to_GLS(concretePkts:set<LPacket<EndPoint, LockMessage>>, concretePkts':set<LPacket<EndPoint, LockMessage>>) 
+    {
+        concretePkts' == concretePkts
+    }
+
+    predicate Service_Correspondence_GLS_to_SS(concretePkts:set<LPacket<EndPoint, LockMessage>>, serviceState:ServiceState) 
+    {
+        forall p, epoch :: 
+            p in concretePkts 
+            && p.src in serviceState.hosts 
+            && p.dst in serviceState.hosts 
+            && (p.msg == Transfer(epoch) || p.msg == Locked(epoch))
+        ==>
+            1 <= epoch <= |serviceState.history|
+        && p.src == serviceState.history[epoch-1]
     }
 }
