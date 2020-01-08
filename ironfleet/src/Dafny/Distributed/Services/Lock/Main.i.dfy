@@ -39,8 +39,9 @@ module Main_i refines Main_s {
         ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
         */
     {
-        // var lb := ImplToProtocol(config, db);
-        // sb := ProtocolToSpec(config, lb);
+        var lb := ImplToProtocol(config, db);
+        var glb := AugmentLS(config, lb);
+        sb := ProtocolToSpec(config, glb);
     }
 
 
@@ -370,7 +371,7 @@ module Main_i refines Main_s {
 
     /* Takes a sequence of LS_States states and returns a corresponding sequence of GLS_States
     */
-    lemma augmentLS(config:ConcreteConfiguration, lb:seq<LS_State>) returns (glb: seq<GLS_State>) 
+    lemma AugmentLS(config:ConcreteConfiguration, lb:seq<LS_State>) returns (glb: seq<GLS_State>) 
         requires |config| > 0;
         requires SeqIsUnique(config);
         requires |lb| > 0;
