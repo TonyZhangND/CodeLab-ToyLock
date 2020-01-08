@@ -436,9 +436,23 @@ module Main_i refines Main_s {
     {
         sb := [];
         var i := 0;
+        ServerInvariantGLS(glb);
+        ConfigInvariantGLS(glb);
+        assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
+        assert forall ep :: ep in glb[i].ls.servers ==> (
+            glb[0].ls.servers[ep].config == config
+        );
         while (i < |glb|) 
             decreases |glb| - i;
             invariant 0 <= i <= |glb|;
+            invariant forall k :: 0 <= k < i ==> (
+                forall ep :: ep in config <==> ep in glb[k].ls.servers
+            );
+            invariant forall k :: 0 <= k < i ==> (
+                forall ep :: ep in glb[k].ls.servers ==> (
+                    glb[k].ls.servers[ep].config == config
+                )
+            );
             invariant |sb| == i;
             invariant forall k :: 0 <= k < i ==> sb[k] == GLS_to_Spec(glb[k]);
             invariant forall k :: 0 < k < i ==> sb[k-1] == sb[k] || Service_Next(sb[k-1], sb[k]);
@@ -446,13 +460,12 @@ module Main_i refines Main_s {
             sb := sb + [GLS_to_Spec(glb[i])];
             assert GLS_Init(glb[0], config);
             assert LS_Init(glb[0].ls, config);
-            assert forall e :: e in config <==> e in glb[0].ls.servers;
             GLS_to_Spec_Correct(glb[0], sb[0], config);
             if i > 0 {
                 assert forall k :: 0 <= k < |glb| - 1 ==>  GLS_Next(glb[k], glb[k+1]);
                 assert 0 <= i-1 < |glb| - 1;
                 assert GLS_Next(glb[i-1], glb[i]);
-                ServiceNextGood(glb[i-1], glb[i], sb[i-1], sb[i]);
+                ServiceNextGood(glb[i-1], glb[i], sb[i-1], sb[i], config);
                 assert sb[i-1] == sb[i] || Service_Next(sb[i-1], sb[i]);
                 GLS_to_Spec_Correct(glb[i], sb[i], config);
             }
@@ -465,27 +478,38 @@ module Main_i refines Main_s {
     }
 
 
-    // lemma ConfigInvariantGLS(config:ConcreteConfiguration, glb:seq<GLS_State>)
-    //     requires |config| > 0;
-    //     requires SeqIsUnique(config);
-    //     requires |glb| > 0;
-    //     requires GLS_Init(glb[0], config);
-    //     requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
-    //     ensures forall i :: 0 <= i < |glb| ==> (
-    //         forall ep :: ep in config <==> ep in glb[i].ls.servers
-    //     );
-    //     ensures forall i :: 0 <= i < |glb| ==> (
-    //         forall ep :: ep in glb[i].ls.servers ==> (
-    //             glb[i].ls.servers[ep].config == config
-    //         )
-    //     );
-    // {
-    //     assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
-    //     assert forall i :: 0 <= i < |glb| ==>  glb[i].ls.servers.Keys == glb[0].ls.servers.Keys;
-    //     assert forall i :: 0 <= i < |glb| ==> (
-    //         forall ep :: ep in config <==> ep in glb[i].ls.servers
-    //     );
-    // }
+    /* Proof that for any sequence of consecutive GLS_States, the config of every node in
+    * the server maps are the same */
+    lemma ConfigInvariantGLS(glb:seq<GLS_State>)
+        requires |glb| > 0;
+        requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        requires forall i :: 0 <= i < |glb| ==> glb[i].ls.servers.Keys == glb[0].ls.servers.Keys;
+        ensures forall i :: 0 <= i < |glb| ==> (
+            forall ep :: ep in glb[i].ls.servers ==> (
+                glb[i].ls.servers[ep].config == glb[0].ls.servers[ep].config
+            )
+        );
+    {
+        if (|glb| > 1) {
+            GLS_Next_Config_Invarint(glb[0], glb[1]);
+            var tail := glb[1..];
+            assert forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+            assert forall i :: 0 <= i < |tail| - 1 ==> tail[i] == glb[i+1];
+            assert forall i :: 0 <= i < |tail| - 1 ==> 1 <= i+1 < |glb| - 1;
+            assert forall i :: 0 <= i < |tail| - 1 ==>  GLS_Next(tail[i], tail[i+1]);
+            ConfigInvariantGLS(tail);
+        }
+    }
+
+    /* Proof that for two neighboring GLS_States, the config of every node in
+    * the server maps are the same */
+    lemma GLS_Next_Config_Invarint(gls: GLS_State, gls': GLS_State)
+        requires GLS_Next(gls, gls');
+        requires gls.ls.servers.Keys == gls'.ls.servers.Keys;
+        ensures forall ep :: ep in gls.ls.servers ==> (
+            gls.ls.servers[ep].config == gls'.ls.servers[ep].config
+        );
+    {}
 
 
     /* Proof that for any sequence of consecutive GLS_States, the domains of their respective server
@@ -493,7 +517,7 @@ module Main_i refines Main_s {
     lemma ServerInvariantGLS(glb:seq<GLS_State>)
         requires |glb| > 0;
         requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
-        ensures forall i :: 0 <= i < |glb| ==> glb[i].ls.servers.Keys == glb[0].ls.servers.Keys; //!
+        ensures forall i :: 0 <= i < |glb| ==> glb[i].ls.servers.Keys == glb[0].ls.servers.Keys;
     {
         if (|glb| > 1) {
             GLS_Next_Server_Invarint(glb[0], glb[1]);
@@ -515,24 +539,27 @@ module Main_i refines Main_s {
 
 
     /* Proof that GLS_Next(gls, gls') implies Service_Next(ss, ss') */
-    lemma ServiceNextGood(gls: GLS_State, gls': GLS_State, ss: ServiceState', ss': ServiceState') 
+    lemma ServiceNextGood(gls: GLS_State, gls': GLS_State, ss: ServiceState', ss': ServiceState', config: ConcreteConfiguration) 
         requires GLS_Next(gls, gls');
         requires ss == GLS_to_Spec(gls) && ss' == GLS_to_Spec(gls');
+        requires forall ep :: ep in config <==> ep in gls.ls.servers.Keys;
+        requires forall ep :: ep in config <==> ep in gls'.ls.servers.Keys;
+        requires forall ep :: ep in gls.ls.servers ==> (
+            gls.ls.servers[ep].config == config
+        );
+        requires forall ep :: ep in gls'.ls.servers ==> (
+            gls'.ls.servers[ep].config == config
+        );
         ensures ss == ss' || Service_Next(ss, ss');
     {
         if ss != ss' {
             assert ss.hosts == ss'.hosts;
             var lock_holder := gls.ls.servers[gls.ls.environment.nextStep.actor].config[(gls.ls.servers[gls.ls.environment.nextStep.actor].my_index + 1) % |gls.ls.servers[gls.ls.environment.nextStep.actor].config|];
             assert ss'.history == ss.history + [lock_holder];
-            assert 0 <= (gls.ls.servers[gls.ls.environment.nextStep.actor].my_index + 1) % |gls.ls.servers[gls.ls.environment.nextStep.actor].config| < |gls.ls.servers[gls.ls.environment.nextStep.actor].config|;
             assert lock_holder in gls.ls.servers[gls.ls.environment.nextStep.actor].config;
-            assert lock_holder in gls.ls.servers;
+            assert lock_holder in gls.ls.servers;  
             assert ss.hosts == Collections__Maps2_s.mapdomain(gls.ls.servers);
             assert lock_holder in ss.hosts;
-            assert exists new_lock_holder :: (
-                new_lock_holder in ss.hosts
-                && ss'.history == ss.history + [new_lock_holder]
-            );
             assert Service_Next(ss, ss');
         }
     }
@@ -542,15 +569,11 @@ module Main_i refines Main_s {
         requires |config| > 0;
         requires SeqIsUnique(config);
         requires ss == GLS_to_Spec(gls);
-        // requires forall e :: e in config <==> e in gls.ls.servers;
-        // requires forall e :: e in gls.ls.servers ==> gls.ls.servers[e].config == config;
         ensures ss.history == gls.history;
         ensures ss.hosts == Collections__Maps2_s.mapdomain(gls.ls.servers);
         ensures GLS_Init(gls, config) ==> Service_Init(ss, Collections__Maps2_s.mapdomain(gls.ls.servers));
-        // ensures forall e :: e in config <==> e in ss.hosts;
     {
     }
-
 
     /* Helper: Takes a GLS_State and returns a corresponding ServiceState' */
     function GLS_to_Spec(gls: GLS_State) : ServiceState' {
