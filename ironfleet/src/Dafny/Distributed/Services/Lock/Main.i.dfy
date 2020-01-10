@@ -39,9 +39,9 @@ module Main_i refines Main_s {
         ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
         */
     {
-        var lb := ImplToProtocol(config, db);
-        var glb := AugmentLS(config, lb);
-        sb := ProtocolToSpec(config, glb);
+        var lb := ImplToProtocol(config, db);   // DS to LS
+        var glb := AugmentLS(config, lb);       // LS to GLS
+        sb := ProtocolToSpec(config, glb);      // GLS to SS
     }
 
 
@@ -63,6 +63,7 @@ module Main_i refines Main_s {
         ensures  |db| == |lb|; 
         ensures  LS_Init(lb[0], config); 
         ensures  forall i :: 0 <= i < |lb| - 1 ==>  LS_Next(lb[i], lb[i+1]);
+        // ensures  forall i :: 0 <= i < |lb| ==> lb[i].environment.sentPackets == abstractifySentPackets(db[i].environment.sentPackets);
         ensures  forall i :: 0 <= i < |lb| ==> Service_Correspondence_DB_to_LS(db[i].environment.sentPackets, lb[i].environment.sentPackets);
     {
         // FIRST CONSTRUCT THE INITIAL PROTOCOL STATE
@@ -90,6 +91,7 @@ module Main_i refines Main_s {
             invariant LS_Init(lb[0], config); 
             invariant forall k :: 0 <= k < i ==> lb[k].environment == convertEnv(db[k].environment);
             invariant forall k :: 0 <= k < i ==> lb[k].servers == map s | s in db[k].servers :: db[k].servers[s].node;
+            // invariant forall k :: 0 <= k < i ==> lb[k].environment.sentPackets == abstractifySentPackets(db[k].environment.sentPackets);
             invariant i > 1 ==> LS_Next(lb[0], lb[1]);
             invariant forall k :: 1 < k < i ==>  LS_Next(lb[k-1], lb[k]); 
         {         
@@ -205,7 +207,7 @@ module Main_i refines Main_s {
         requires e2 == convertEnv(e1);
         // Ensure construction is correct
         ensures e2.time == e1.time;
-        ensures e2.sentPackets == set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)));
+        ensures e2.sentPackets == abstractifySentPackets(e1.sentPackets);
         ensures e2.hostInfo == convertHostInfo(e1.hostInfo);
         ensures e2.nextStep == convertNextStep(e1.nextStep);
         
@@ -220,6 +222,7 @@ module Main_i refines Main_s {
             convertLEnvStepHostIosLemma(e1.nextStep.ios, e2.nextStep.ios);
         }
         convertNextStepLemma(e1.nextStep, e2.nextStep);
+        abstractifySentPacketsLemma(e1.sentPackets, e2.sentPackets);
 
         assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> (
             forall i :: 0<= i < |e2.nextStep.ios| ==> (
@@ -231,9 +234,29 @@ module Main_i refines Main_s {
 
     function convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) : LEnvironment<EndPoint, LockMessage> {
         LEnvironment(e1.time,
-                    set p | p in e1.sentPackets :: LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))),
+                    abstractifySentPackets(e1.sentPackets),
                     convertHostInfo(e1.hostInfo),
                     convertNextStep(e1.nextStep))        
+    }
+
+
+    /* Proof that abstractifySentPackets preserves the appropriate properties */
+    lemma abstractifySentPacketsLemma(sp: set<LPacket<EndPoint, seq<byte>>>, sp': set<LPacket<EndPoint, LockMessage>>) 
+        requires sp' == abstractifySentPackets(sp);
+        ensures forall p :: p in sp ==> abstractifyPacket(p) in sp'
+    {}
+
+
+    /* Helper: Convert set<LPacket<EndPoint, seq<byte>> to set<LPacket<EndPoint, LockMessage> */
+    function abstractifySentPackets(sp: set<LPacket<EndPoint, seq<byte>>>) : set<LPacket<EndPoint, LockMessage>>
+    {
+        set p | p in sp :: abstractifyPacket(p)
+    }
+    
+    /* Helper: Convert LPacket<EndPoint, seq<byte> to LPacket<EndPoint, LockMessage */
+    function abstractifyPacket(p: LPacket<EndPoint, seq<byte>>) : LPacket<EndPoint, LockMessage>
+    {
+        LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)))
     }
 
     
@@ -244,7 +267,7 @@ module Main_i refines Main_s {
             case LEnvStepHostIos(actor, ios)    => 
                 ns2 == LEnvStepHostIos(actor, convertLEnvStepHostIos(ios))
             case LEnvStepDeliverPacket(p)       => 
-                ns2 == LEnvStepDeliverPacket(LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))))
+                ns2 == LEnvStepDeliverPacket(abstractifyPacket(p))
             case LEnvStepAdvanceTime            => 
                 ns2 == LEnvStepAdvanceTime()
             case LEnvStepStutter                => 
@@ -260,7 +283,7 @@ module Main_i refines Main_s {
             case LEnvStepHostIos(actor, ios)    => 
                 LEnvStepHostIos(actor, convertLEnvStepHostIos(ios))
             case LEnvStepDeliverPacket(p)       => 
-                LEnvStepDeliverPacket(LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg))))
+                LEnvStepDeliverPacket(abstractifyPacket(p))
             case LEnvStepAdvanceTime            => 
                 LEnvStepAdvanceTime()
             case LEnvStepStutter                => 
@@ -275,9 +298,9 @@ module Main_i refines Main_s {
         ensures forall i :: 0 <= i < |s1| ==> (
             match s1[i] 
             case LIoOpSend(s)               =>
-                s2[i] == LIoOpSend(LPacket(s.dst, s.src, AbstractifyCMessage(DemarshallData(s.msg))))
+                s2[i] == LIoOpSend(abstractifyPacket(s))
             case LIoOpReceive(r)            =>
-                s2[i] == LIoOpReceive(LPacket(r.dst, r.src, AbstractifyCMessage(DemarshallData(r.msg))))
+                s2[i] == LIoOpReceive(abstractifyPacket(r))
             case LIoOpTimeoutReceive()      =>
                 s2[i] == LIoOpTimeoutReceive()
             case LIoOpReadClock(t)          =>
@@ -301,9 +324,9 @@ module Main_i refines Main_s {
         if |s1| == 0 then [] else
         match s1[0] 
             case LIoOpSend(s)               =>
-                [LIoOpSend(LPacket(s.dst, s.src, AbstractifyCMessage(DemarshallData(s.msg))))] + convertLEnvStepHostIos(s1[1..])
+                [LIoOpSend(abstractifyPacket(s))] + convertLEnvStepHostIos(s1[1..])
             case LIoOpReceive(r)            =>
-                [LIoOpReceive(LPacket(r.dst, r.src, AbstractifyCMessage(DemarshallData(r.msg))))] + convertLEnvStepHostIos(s1[1..])
+                [LIoOpReceive(abstractifyPacket(r))] + convertLEnvStepHostIos(s1[1..])
             case LIoOpTimeoutReceive()      =>
                 [LIoOpTimeoutReceive()] + convertLEnvStepHostIos(s1[1..])
             case LIoOpReadClock(t)          =>
@@ -334,7 +357,7 @@ module Main_i refines Main_s {
         if (|byte_seq| == 0) then
             []
         else
-            [LPacket(byte_seq[0].dst, byte_seq[0].src, AbstractifyCMessage(DemarshallData(byte_seq[0].msg)))] + byteSeqToLockMessageSeq(byte_seq[1..])
+            [abstractifyPacket(byte_seq[0])] + byteSeqToLockMessageSeq(byte_seq[1..])
     }
 
     /* Proof: Prove that convertHostInfo function is correct */
@@ -590,16 +613,8 @@ module Main_i refines Main_s {
 
     predicate Service_Correspondence_DB_to_LS(concretePkts:set<LPacket<EndPoint, seq<byte>>>, concretePkts':set<LPacket<EndPoint, LockMessage>>) 
     {
-        |concretePkts'| == |concretePkts| 
-        && forall p, epoch :: p in concretePkts && p.msg == MarshallLockMsg(epoch) ==> (  // marshall is int->seq<byte>
-                exists p' :: (
-                    p' in concretePkts' 
-                    && p'.src == p.src 
-                    && p'.dst == p.dst
-                    && p'.msg == AbstractifyCMessage(DemarshallData(p.msg))    
-                    && (p'.msg == Transfer(epoch) || p'.msg == Locked(epoch))
-                )
-        )
+        concretePkts' == abstractifySentPackets(concretePkts)
+        && forall p :: p in concretePkts ==> abstractifyPacket(p) in concretePkts'
     }
 
     predicate Service_Correspondence_LS_to_GLS(concretePkts:set<LPacket<EndPoint, LockMessage>>, concretePkts':set<LPacket<EndPoint, LockMessage>>) 
@@ -613,7 +628,7 @@ module Main_i refines Main_s {
             p in concretePkts 
             && p.src in serviceState.hosts 
             && p.dst in serviceState.hosts 
-            && (p.msg == Transfer(epoch) || p.msg == Locked(epoch))
+            && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
         ==>
             1 <= epoch <= |serviceState.history|
         && p.src == serviceState.history[epoch-1]
