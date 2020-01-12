@@ -644,19 +644,41 @@ module Main_i refines Main_s {
         ==>
             1 <= epoch <= |serviceState.history|
         && p.src == serviceState.history[epoch-1]
+        && p.msg == Locked(epoch)
     }
 
 
+    /* Proof that for all epochs, MarshallLockMsg(epoch) is a byte sequence that abstractifies
+    * to a LockMessage Locked(epoch) */
+    lemma marshallLockMessageLemma(epoch: int)
+        requires 0 <= epoch < 0x1_0000_0000_0000_0000;
+        requires Demarshallable(MarshallLockMsg(epoch), CMessageGrammar());
+        ensures AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch);
+    {
+        var bytes := MarshallLockMsg(epoch);
+        var msg := AbstractifyCMessage(DemarshallData(bytes));
+        var grammar := CMessageGrammar();
+        lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
+    }
+
+
+    /* Inductive invariant for proving Service_Correspondence */
     predicate Service_Invariant(gls: GLS_State, ss:ServiceState) 
     {
         Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss)
+
     }
 
+
+    /* Proof that Service_Invariant implies Service_Correspondence */
     lemma Service_Invariant_Correct(gls: GLS_State, ss:ServiceState) 
         requires Service_Invariant(gls, ss);
         ensures Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss);
     {}
 
+
+    /* Proof by induction that Service_Invariant(gls, ss) on i'th state
+    * implies Service_Invariant(gls', ss') on (i+1)'th state */
     lemma Service_Induction(
         gls: GLS_State, 
         ss:ServiceState,
@@ -668,5 +690,7 @@ module Main_i refines Main_s {
         requires ss == ss' || Service_Next(ss, ss');
         requires Service_Invariant(gls, ss);
         ensures Service_Invariant(gls', ss');
-    {}
+    {
+
+    }
 }
