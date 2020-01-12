@@ -481,6 +481,10 @@ module Main_i refines Main_s {
             invariant |sb| == i;
             invariant forall k :: 0 <= k < i ==> sb[k] == GLS_to_Spec(glb[k]);
             invariant forall k :: 0 < k < i ==> sb[k-1] == sb[k] || Service_Next(sb[k-1], sb[k]);
+
+            // Stuff for proving Service_Correspondence  TONY
+            invariant forall k :: 0 <= k < i ==> Service_Invariant(glb[k], sb[k]);
+            invariant forall k :: 0 <= k < i ==> Service_Correspondence_GLS_to_SS(glb[k].ls.environment.sentPackets, sb[k])
         {
             sb := sb + [GLS_to_Spec(glb[i])];
             assert GLS_Init(glb[0], config);
@@ -493,6 +497,14 @@ module Main_i refines Main_s {
                 ServiceNextGood(glb[i-1], glb[i], sb[i-1], sb[i], config);
                 assert sb[i-1] == sb[i] || Service_Next(sb[i-1], sb[i]);
                 GLS_to_Spec_Correct(glb[i], sb[i], config);
+
+                // Stuff for proving Service_Correspondence TONY
+                assert Service_Invariant(glb[i-1], sb[i-1]);
+                Service_Invariant_Correct(glb[i-1], sb[i-1]);
+                Service_Induction(glb[i-1], sb[i-1], glb[i], sb[i]);
+                assert Service_Invariant(glb[i], sb[i]);
+                Service_Invariant_Correct(glb[i], sb[i]);
+                assert Service_Correspondence_GLS_to_SS(glb[i].ls.environment.sentPackets, sb[i]);
             }
             i := i + 1;
         }
@@ -607,7 +619,7 @@ module Main_i refines Main_s {
 
 
     /*************************************************************************************
-    * Predicates for proving service correspondence
+    * Predicates and lemmas for proving service correspondence
     * ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
     *************************************************************************************/
 
@@ -633,4 +645,28 @@ module Main_i refines Main_s {
             1 <= epoch <= |serviceState.history|
         && p.src == serviceState.history[epoch-1]
     }
+
+
+    predicate Service_Invariant(gls: GLS_State, ss:ServiceState) 
+    {
+        Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss)
+    }
+
+    lemma Service_Invariant_Correct(gls: GLS_State, ss:ServiceState) 
+        requires Service_Invariant(gls, ss);
+        ensures Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss);
+    {}
+
+    lemma Service_Induction(
+        gls: GLS_State, 
+        ss:ServiceState,
+        gls': GLS_State, 
+        ss':ServiceState)
+        requires GLS_Next(gls, gls');
+        requires ss == GLS_to_Spec(gls);
+        requires ss' == GLS_to_Spec(gls');
+        requires ss == ss' || Service_Next(ss, ss');
+        requires Service_Invariant(gls, ss);
+        ensures Service_Invariant(gls', ss');
+    {}
 }
