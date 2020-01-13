@@ -644,9 +644,7 @@ module Main_i refines Main_s {
         ==>
             1 <= epoch <= |serviceState.history|
         && p.src == serviceState.history[epoch-1]
-        && p.msg == Locked(epoch)
     }
-
 
     /* Proof that for all epochs, MarshallLockMsg(epoch) is a byte sequence that abstractifies
     * to a LockMessage Locked(epoch) */
@@ -665,8 +663,15 @@ module Main_i refines Main_s {
     /* Inductive invariant for proving Service_Correspondence */
     predicate Service_Invariant(gls: GLS_State, ss:ServiceState) 
     {
-        Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss)
-
+        (forall p, epoch :: 
+            p in gls.ls.environment.sentPackets 
+            && p.src in ss.hosts 
+            && p.dst in ss.hosts 
+            && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+        ==>
+            p.msg == Locked(epoch)
+        )
+        && Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss)
     }
 
 
@@ -691,6 +696,80 @@ module Main_i refines Main_s {
         requires Service_Invariant(gls, ss);
         ensures Service_Invariant(gls', ss');
     {
+        if (gls.ls.environment.nextStep.LEnvStepHostIos? && gls.ls.environment.nextStep.actor in gls.ls.servers
+            && NodeGrant(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
+            && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF)
+        {
+            // If gls->gls' is a NodeGrant step
+            assert gls.ls.environment.nextStep.LEnvStepHostIos?;
+            var src := gls.ls.environment.nextStep.actor;
+            var ios := gls.ls.environment.nextStep.ios;
+
+            assert LEnvironment_PerformIos(gls.ls.environment, gls'.ls.environment, src, ios);
+            assert |ios| == 1;
+            assert ios[0].LIoOpSend?;
+            
+            var new_packet := ios[0].s;
+            var dst := new_packet.dst;
+
+            assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + {new_packet};
+            assert new_packet.msg.Transfer?;
+            assert forall p :: p in gls.ls.environment.sentPackets && p.msg.Locked? <==> p in gls'.ls.environment.sentPackets && p.msg.Locked?;
+            // Now we know that the set of LockedMessages are the same 
+            // in gls.ls.env.sentPackets and gls'.ls.env.sentPackets. Also, the history
+            // has increased by 1
+            assert ss'.history == ss.history + [dst];
+            assert ss'.hosts == ss.hosts;
+
+            var epoch := new_packet.msg.transfer_epoch;
+            assert 0 <= epoch < 0x1_0000_0000_0000_0000;
+            assert Demarshallable(MarshallLockMsg(epoch), CMessageGrammar());
+            marshallLockMessageLemma(epoch);
+
+            assert forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
+
+            assert forall p, epoch :: (
+                && p in gls'.ls.environment.sentPackets 
+                && p.src in ss'.hosts 
+                && p.dst in ss'.hosts 
+                && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+                ==> 
+                p.msg == Locked(epoch)
+            );
+
+            assert forall p, epoch :: (
+                && p in gls'.ls.environment.sentPackets 
+                && p.src in ss'.hosts 
+                && p.dst in ss'.hosts 
+                && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+                ==>
+                && p in gls.ls.environment.sentPackets 
+            );
+
+            assert forall p, epoch :: (
+                && p in gls.ls.environment.sentPackets 
+                && p.src in ss.hosts 
+                && p.dst in ss.hosts
+                && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+                ==> 
+                && 1 <= epoch <= |ss.history|
+                && p.src == ss.history[epoch-1]
+            );
+
+            assert forall p, epoch :: (
+                && p in gls.ls.environment.sentPackets 
+                && 1 <= epoch <= |ss.history|
+                && p.src == ss.history[epoch-1]
+                ==>
+                && 1 <= epoch <= |ss'.history|
+                && p.src == ss'.history[epoch-1]
+            );            
+
+            assert Service_Invariant(gls', ss');
+        } else {
+            // If gls->gls' is a NodeAccept step
+            // assert |gls'.ls.environment.sentPackets| == |gls.ls.environment.sentPackets| + 1;
+        }
 
     }
 }
