@@ -744,16 +744,18 @@ module Main_i refines Main_s {
             assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + {new_packet};
             assert forall p :: p in gls.ls.environment.sentPackets && p.msg.Locked? <==> p in gls'.ls.environment.sentPackets && p.msg.Locked?;
 
-            assert forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
-
+            
             // Every packet in gls' statisfying antecedent has type Locked
+            new_transfer_packet_lemma(new_packet.msg);
+            assert forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
             assert forall p, epoch :: (
                 && p in gls'.ls.environment.sentPackets 
                 && p.src in ss'.hosts 
                 && p.dst in ss'.hosts 
                 && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
                 ==> 
-                p.msg == Locked(epoch)
+                && p != new_packet 
+                && p.msg == Locked(epoch)
             );
 
             // Putting it all together
@@ -779,6 +781,14 @@ module Main_i refines Main_s {
             // If gls->gls' is a NodeAccept step
             // assert |gls'.ls.environment.sentPackets| == |gls.ls.environment.sentPackets| + 1;
         }
+
+    }
+
+    lemma new_transfer_packet_lemma(new_packet_msg: LockMessage)
+        requires new_packet_msg.Transfer?;
+        requires 0 <= new_packet_msg.transfer_epoch < 0x1_0000_0000_0000_0000;
+        ensures forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet_msg;
+    {
 
     }
 
