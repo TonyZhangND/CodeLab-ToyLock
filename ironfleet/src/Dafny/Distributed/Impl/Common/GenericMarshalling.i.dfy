@@ -616,6 +616,7 @@ method ParseCase(data:array<byte>, index:uint64, cases:seq<G>) returns (success:
     }
 }
 
+// parse_Val
 function method {:opaque} parse_Val(data:seq<byte>, grammar:G) : (Option<V>, seq<byte>)
     requires |data| < 0x1_0000_0000_0000_0000;
     requires ValidGrammar(grammar);
