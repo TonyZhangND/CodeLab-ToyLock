@@ -127,20 +127,21 @@ module Main_i refines Main_s {
         requires ls' == LS_State(convertEnv(ds'.environment), map s | s in ds'.servers :: ds'.servers[s].node);
         ensures LS_Next(ls, ls');
     {
-            envNextStepGood(ds.environment, ds'.environment, ls.environment, ls'.environment);
-            assert LEnvironment_Next(ls.environment, ls'.environment);
-            if ls.environment.nextStep.LEnvStepHostIos? && ls.environment.nextStep.actor in ls.servers {
-                assert ds.environment.nextStep.actor in ds.servers;
-                assert DS_NextOneServer(ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios);
-                LS_NextOneServerGood(
-                    ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios,
-                    ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios
-                );                   
-                assert LS_NextOneServer(ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios);
-            } else {
-                assert ls.servers == ls'.servers;
-            }
-            assert LS_Next(ls, ls');
+        reveal_convertNextStep();
+        envNextStepGood(ds.environment, ds'.environment, ls.environment, ls'.environment);
+        assert LEnvironment_Next(ls.environment, ls'.environment);
+        if ls.environment.nextStep.LEnvStepHostIos? && ls.environment.nextStep.actor in ls.servers {
+            assert ds.environment.nextStep.actor in ds.servers;
+            assert DS_NextOneServer(ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios);
+            LS_NextOneServerGood(
+                ds, ds', ds.environment.nextStep.actor, ds.environment.nextStep.ios,
+                ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios
+            );                   
+            assert LS_NextOneServer(ls, ls', ls.environment.nextStep.actor, ls.environment.nextStep.ios);
+        } else {
+            assert ls.servers == ls'.servers;
+        }
+        assert LS_Next(ls, ls');
     }
 
 
@@ -163,6 +164,7 @@ module Main_i refines Main_s {
         requires lid in ls.servers;
         ensures LS_NextOneServer(ls, ls', lid, lios);
     {
+        reveal_convertNextStep();
         assert lid in ls'.servers;
         assert ls'.servers == ls.servers[lid := ls'.servers[lid]];
 
@@ -191,6 +193,7 @@ module Main_i refines Main_s {
         requires l1 == convertEnv(d1) && l2 == convertEnv(d2);
         ensures LEnvironment_Next(l1, l2); 
     {
+        reveal_convertNextStep();
         convertEnvLemma(d1, l1);
         convertEnvLemma(d2, l2);
         if l1.nextStep.LEnvStepHostIos? {
@@ -216,6 +219,7 @@ module Main_i refines Main_s {
         ensures IsValidLEnvStep(e1, e1.nextStep) ==> IsValidLEnvStep(e2, e2.nextStep);
 
     {
+        reveal_convertNextStep();
         convertHostInfoLemma(e1.hostInfo, e2.hostInfo);
         if IsValidLEnvStep(e1, e1.nextStep) && e1.nextStep.LEnvStepHostIos? {
             assert LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
@@ -272,13 +276,15 @@ module Main_i refines Main_s {
                 ns2 == LEnvStepAdvanceTime()
             case LEnvStepStutter                => 
                 ns2 == LEnvStepStutter()
-    {}
+    {
+        reveal_convertNextStep();
+    }
 
 
     /* Helper: Takes a LEnvStep<EndPoint, seq<byte>> belonging to a ds state and 
     * returns a corresponding LEnvStep<EndPoint, LockMessage> belonging 
     * to a ls state */
-    function convertNextStep(ns: LEnvStep<EndPoint, seq<byte>>) : LEnvStep<EndPoint, LockMessage> {
+    function {:opaque} convertNextStep(ns: LEnvStep<EndPoint, seq<byte>>) : LEnvStep<EndPoint, LockMessage> {
         match ns
             case LEnvStepHostIos(actor, ios)    => 
                 LEnvStepHostIos(actor, convertLEnvStepHostIos(ios))
@@ -369,6 +375,7 @@ module Main_i refines Main_s {
         ensures |h1| == |h2|; 
         ensures forall ep :: ep in h2 ==> h2[ep].queue == byteSeqToLockMessageSeq(h1[ep].queue); 
     {
+        reveal_convertHostInfo();
         if |h1| == 0 {
             assert |h2| == |h1|;
         } else {
@@ -384,7 +391,7 @@ module Main_i refines Main_s {
         }
     }
 
-    function convertHostInfo(h1: map<EndPoint, LHostInfo<EndPoint, seq<byte>>>) : map<EndPoint, LHostInfo<EndPoint, LockMessage>> {
+    function {:opaque} convertHostInfo(h1: map<EndPoint, LHostInfo<EndPoint, seq<byte>>>) : map<EndPoint, LHostInfo<EndPoint, LockMessage>> {
         map ep : EndPoint | ep in h1 :: LHostInfo(byteSeqToLockMessageSeq(h1[ep].queue))
     }
 
@@ -484,7 +491,7 @@ module Main_i refines Main_s {
             invariant forall k :: 0 <= k < i ==> sb[k] == GLS_to_Spec(glb[k]);
             invariant forall k :: 0 < k < i ==> sb[k-1] == sb[k] || Service_Next(sb[k-1], sb[k]);
 
-            // Stuff for proving Service_Correspondence  TONY
+            // Stuff for proving Service_Correspondence 
             invariant forall k :: 0 <= k < i ==> Service_Invariant(glb[k], sb[k]);
             invariant forall k :: 0 <= k < i ==> Service_Correspondence_GLS_to_SS(glb[k].ls.environment.sentPackets, sb[k])
         {
@@ -500,7 +507,7 @@ module Main_i refines Main_s {
                 assert sb[i-1] == sb[i] || Service_Next(sb[i-1], sb[i]);
                 GLS_to_Spec_Correct(glb[i], sb[i], config);
 
-                // Stuff for proving Service_Correspondence TONY
+                // Stuff for proving Service_Correspondence
                 assert Service_Invariant(glb[i-1], sb[i-1]);
                 Service_Invariant_Correct(glb[i-1], sb[i-1]);
                 Service_Induction(glb[i-1], sb[i-1], glb[i], sb[i]);
@@ -591,6 +598,7 @@ module Main_i refines Main_s {
         );
         ensures ss == ss' || Service_Next(ss, ss');
     {
+        reveal_GLS_to_Spec();
         if ss != ss' {
             assert ss.hosts == ss'.hosts;
             var lock_holder := gls.ls.servers[gls.ls.environment.nextStep.actor].config[(gls.ls.servers[gls.ls.environment.nextStep.actor].my_index + 1) % |gls.ls.servers[gls.ls.environment.nextStep.actor].config|];
@@ -612,10 +620,11 @@ module Main_i refines Main_s {
         ensures ss.hosts == Collections__Maps2_s.mapdomain(gls.ls.servers);
         ensures GLS_Init(gls, config) ==> Service_Init(ss, Collections__Maps2_s.mapdomain(gls.ls.servers));
     {
+        reveal_GLS_to_Spec();
     }
 
     /* Helper: Takes a GLS_State and returns a corresponding ServiceState' */
-    function GLS_to_Spec(gls: GLS_State) : ServiceState' {
+    function {:opaque} GLS_to_Spec(gls: GLS_State) : ServiceState' {
         ServiceState'(Collections__Maps2_s.mapdomain(gls.ls.servers), gls.history)
     }
 
@@ -648,20 +657,7 @@ module Main_i refines Main_s {
         && p.src == serviceState.history[epoch-1]
     }
 
-    /* Proof that for all epochs, MarshallLockMsg(epoch) is a byte sequence that abstractifies
-    * to a LockMessage Locked(epoch) */
-    lemma marshallLockMessageLemma(epoch: int)
-        requires 0 <= epoch < 0x1_0000_0000_0000_0000;
-        requires Demarshallable(MarshallLockMsg(epoch), CMessageGrammar());
-        ensures AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch);
-    {
-        var bytes := MarshallLockMsg(epoch);
-        var msg := AbstractifyCMessage(DemarshallData(bytes));
-        var grammar := CMessageGrammar();
-        lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
-    }
-
-
+    
     /* Inductive invariant for proving Service_Correspondence */
     predicate Service_Invariant(gls: GLS_State, ss:ServiceState) 
     {
@@ -701,6 +697,7 @@ module Main_i refines Main_s {
         requires Service_Invariant(gls, ss);
         ensures Service_Invariant(gls', ss');
     {
+        reveal_GLS_to_Spec();
         if (gls.ls.environment.nextStep.LEnvStepHostIos? && gls.ls.environment.nextStep.actor in gls.ls.servers
             && NodeGrant(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
             && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF)
@@ -735,12 +732,12 @@ module Main_i refines Main_s {
             assert epoch == gls.ls.servers[src].epoch + 1;
             assert 0 <= epoch <= 0xFFFF_FFFF_FFFF_FFFF;
             
-            // Prove that new_packed.msg != AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
-            var data := MarshallLockMsg(epoch);
-            assert Demarshallable(data, CMessageGrammar());
-            marshallLockMessageLemma(epoch);
-            assert AbstractifyCMessage(DemarshallData(data)) == Locked(epoch);
-            assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
+            // // Prove that new_packed.msg != AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+            // var data := MarshallLockMsg(epoch);
+            // assert Demarshallable(data, CMessageGrammar());
+            // marshallLockMessageLemma(epoch);
+            // assert AbstractifyCMessage(DemarshallData(data)) == Locked(epoch);
+            // assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
             
             // Now we know that the set of LockedMessages are the same 
             // in gls.ls.env.sentPackets and gls'.ls.env.sentPackets.
@@ -785,5 +782,16 @@ module Main_i refines Main_s {
 
     }
 
-    // lemma MarshallEpochDemarshable(data: seq<byte>)
+    /* Proof that for all epochs, MarshallLockMsg(epoch) is a byte sequence that abstractifies
+    * to a LockMessage Locked(epoch) */
+    lemma marshallLockMessageLemma(epoch: int)
+        requires 0 <= epoch < 0x1_0000_0000_0000_0000;
+        requires Demarshallable(MarshallLockMsg(epoch), CMessageGrammar());
+        ensures AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch);
+    {
+        var bytes := MarshallLockMsg(epoch);
+        var msg := AbstractifyCMessage(DemarshallData(bytes));
+        var grammar := CMessageGrammar();
+        lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
+    }
 }
