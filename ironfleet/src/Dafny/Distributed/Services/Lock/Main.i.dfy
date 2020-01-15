@@ -703,8 +703,18 @@ module Main_i refines Main_s {
     predicate NodeGrantStep(gls: GLS_State, gls': GLS_State) {
         && gls.ls.environment.nextStep.LEnvStepHostIos? 
         && gls.ls.environment.nextStep.actor in gls.ls.servers
+        && gls.ls.environment.nextStep.actor in gls'.ls.servers
         && NodeGrant(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
-        && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
+        // && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
+    }
+
+    /* True iff gls-> gls' is a NodeAccept step */
+    predicate NodeAcceptStep(gls: GLS_State, gls': GLS_State) {
+        && gls.ls.environment.nextStep.LEnvStepHostIos? 
+        && gls.ls.environment.nextStep.actor in gls.ls.servers
+        && gls.ls.environment.nextStep.actor in gls'.ls.servers
+        && NodeAccept(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
+        // && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
     }
 
 
@@ -723,11 +733,32 @@ module Main_i refines Main_s {
         ensures Service_Invariant(gls', ss');
     {
         if (NodeGrantStep(gls, gls')) {
-            serviceInductionNodeGrant(gls, ss, gls', ss);
+            serviceInductionNodeGrant(gls, ss, gls', ss');
+        } else if (NodeAcceptStep(gls, gls')) {
+            serviceInductionNodeAccept(gls, ss, gls', ss');
         } else {
-            // If gls->gls' is a NodeAccept step
-            // assert |gls'.ls.environment.sentPackets| == |gls.ls.environment.sentPackets| + 1;
+            assert Service_Invariant(gls', ss');
         }
+    }
+
+
+    /* Proof by induction that Service_Invariant(gls, ss) on i'th state implies 
+    * Service_Invariant(gls', ss') on (i+1)'th state, given that gls->gls' is a 
+    * NodeNext step */
+    lemma serviceInductionNodeAccept(
+        gls: GLS_State, 
+        ss:ServiceState,
+        gls': GLS_State, 
+        ss':ServiceState)
+        requires GLS_Next(gls, gls');
+        requires ss == GLS_to_Spec(gls);
+        requires ss' == GLS_to_Spec(gls');
+        requires ss == ss' || Service_Next(ss, ss');
+        requires Service_Invariant(gls, ss);
+        requires NodeAcceptStep(gls, gls');
+        ensures Service_Invariant(gls', ss');
+    {
+        assert Service_Invariant(gls', ss');
     }
 
 
