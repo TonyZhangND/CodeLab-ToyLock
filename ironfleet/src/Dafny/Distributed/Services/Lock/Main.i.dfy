@@ -39,6 +39,7 @@ module Main_i refines Main_s {
         ensures  forall i :: 0 <= i < |db| ==> Service_Correspondence(db[i].environment.sentPackets, sb[i]);
         */
     {
+        reveal_abstractifyPacket();
         var lb := ImplToProtocol(config, db);   // DS to LS
         var glb := AugmentLS(config, lb);       // LS to GLS
         sb := ProtocolToSpec(config, glb);      // GLS to SS
@@ -66,6 +67,8 @@ module Main_i refines Main_s {
         // ensures  forall i :: 0 <= i < |lb| ==> lb[i].environment.sentPackets == abstractifySentPackets(db[i].environment.sentPackets);
         ensures  forall i :: 0 <= i < |lb| ==> Service_Correspondence_DB_to_LS(db[i].environment.sentPackets, lb[i].environment.sentPackets);
     {
+        reveal_convertEnv();
+        reveal_abstractifySentPackets();
         // FIRST CONSTRUCT THE INITIAL PROTOCOL STATE
         // Construct LS_State.environment for initial state
         var env := convertEnv(db[0].environment);
@@ -127,6 +130,7 @@ module Main_i refines Main_s {
         requires ls' == LS_State(convertEnv(ds'.environment), map s | s in ds'.servers :: ds'.servers[s].node);
         ensures LS_Next(ls, ls');
     {
+        reveal_convertEnv();
         reveal_convertNextStep();
         envNextStepGood(ds.environment, ds'.environment, ls.environment, ls'.environment);
         assert LEnvironment_Next(ls.environment, ls'.environment);
@@ -164,7 +168,9 @@ module Main_i refines Main_s {
         requires lid in ls.servers;
         ensures LS_NextOneServer(ls, ls', lid, lios);
     {
+        reveal_convertEnv();
         reveal_convertNextStep();
+        reveal_abstractifyPacket();
         assert lid in ls'.servers;
         assert ls'.servers == ls.servers[lid := ls'.servers[lid]];
 
@@ -193,6 +199,8 @@ module Main_i refines Main_s {
         requires l1 == convertEnv(d1) && l2 == convertEnv(d2);
         ensures LEnvironment_Next(l1, l2); 
     {
+        reveal_abstractifySentPackets();
+        reveal_convertEnv();
         reveal_convertNextStep();
         convertEnvLemma(d1, l1);
         convertEnvLemma(d2, l2);
@@ -219,7 +227,10 @@ module Main_i refines Main_s {
         ensures IsValidLEnvStep(e1, e1.nextStep) ==> IsValidLEnvStep(e2, e2.nextStep);
 
     {
+        reveal_convertEnv();
         reveal_convertNextStep();
+        reveal_abstractifyPacket();
+        reveal_abstractifySentPackets();
         convertHostInfoLemma(e1.hostInfo, e2.hostInfo);
         if IsValidLEnvStep(e1, e1.nextStep) && e1.nextStep.LEnvStepHostIos? {
             assert LIoOpSeqCompatibleWithReduction(e1.nextStep.ios);
@@ -236,7 +247,7 @@ module Main_i refines Main_s {
         assert IsValidLEnvStep(e1, e1.nextStep) && e2.nextStep.LEnvStepHostIos? ==> IsValidLEnvStep(e2, e2.nextStep);
     }
 
-    function convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) : LEnvironment<EndPoint, LockMessage> {
+    function {:opaque} convertEnv(e1: LEnvironment<EndPoint, seq<byte>>) : LEnvironment<EndPoint, LockMessage> {
         LEnvironment(e1.time,
                     abstractifySentPackets(e1.sentPackets),
                     convertHostInfo(e1.hostInfo),
@@ -248,17 +259,19 @@ module Main_i refines Main_s {
     lemma abstractifySentPacketsLemma(sp: set<LPacket<EndPoint, seq<byte>>>, sp': set<LPacket<EndPoint, LockMessage>>) 
         requires sp' == abstractifySentPackets(sp);
         ensures forall p :: p in sp ==> abstractifyPacket(p) in sp'
-    {}
+    {
+        reveal_abstractifySentPackets();
+    }
 
 
     /* Helper: Convert set<LPacket<EndPoint, seq<byte>> to set<LPacket<EndPoint, LockMessage> */
-    function abstractifySentPackets(sp: set<LPacket<EndPoint, seq<byte>>>) : set<LPacket<EndPoint, LockMessage>>
+    function {:opaque} abstractifySentPackets(sp: set<LPacket<EndPoint, seq<byte>>>) : set<LPacket<EndPoint, LockMessage>>
     {
         set p | p in sp :: abstractifyPacket(p)
     }
     
     /* Helper: Convert LPacket<EndPoint, seq<byte> to LPacket<EndPoint, LockMessage */
-    function abstractifyPacket(p: LPacket<EndPoint, seq<byte>>) : LPacket<EndPoint, LockMessage>
+    function {:opaque} abstractifyPacket(p: LPacket<EndPoint, seq<byte>>) : LPacket<EndPoint, LockMessage>
     {
         LPacket(p.dst, p.src, AbstractifyCMessage(DemarshallData(p.msg)))
     }
@@ -349,6 +362,7 @@ module Main_i refines Main_s {
         ensures forall i :: 0 <= i < |byte_seq| ==> byte_seq[i].src == lock_msg_seq[i].src;
         ensures forall i :: 0 <= i < |byte_seq| ==> AbstractifyCMessage(DemarshallData(byte_seq[i].msg)) == lock_msg_seq[i].msg;
     {
+        reveal_abstractifyPacket();
         reveal_byteSeqToLockMessageSeq();
         if (|byte_seq| == 0) {
             assert |lock_msg_seq| == 0;
@@ -520,6 +534,8 @@ module Main_i refines Main_s {
         assert GLS_Init(glb[0], config);
         assert sb[0] == GLS_to_Spec(glb[0]);
         GLS_to_Spec_Correct(glb[0], sb[0], config);
+        assert forall k :: 0 < k < |sb| ==> sb[k-1] == sb[k] || Service_Next(sb[k-1], sb[k]);
+        assert forall i :: 0 <= i < |sb| - 1 ==> 0 < i+1 < |sb|;
         assert forall i :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
     }
 
@@ -732,13 +748,6 @@ module Main_i refines Main_s {
             assert epoch == gls.ls.servers[src].epoch + 1;
             assert 0 <= epoch <= 0xFFFF_FFFF_FFFF_FFFF;
             
-            // // Prove that new_packed.msg != AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
-            // var data := MarshallLockMsg(epoch);
-            // assert Demarshallable(data, CMessageGrammar());
-            // marshallLockMessageLemma(epoch);
-            // assert AbstractifyCMessage(DemarshallData(data)) == Locked(epoch);
-            // assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
-            
             // Now we know that the set of LockedMessages are the same 
             // in gls.ls.env.sentPackets and gls'.ls.env.sentPackets.
             assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + {new_packet};
@@ -784,12 +793,27 @@ module Main_i refines Main_s {
 
     }
 
+    /* Proof that the new Transfer message created on NodeGrant does not correspond to 
+    * any AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) */
     lemma new_transfer_packet_lemma(new_packet_msg: LockMessage)
         requires new_packet_msg.Transfer?;
         requires 0 <= new_packet_msg.transfer_epoch < 0x1_0000_0000_0000_0000;
         ensures forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet_msg;
     {
-
+        forall epoch | true 
+        ensures (
+            || AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch)
+            || AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Invalid
+        ){
+            var bytes := MarshallLockMsg(epoch);
+            var cmsg := DemarshallData(bytes);
+            if (Demarshallable(bytes, CMessageGrammar())) {
+                assert AbstractifyCMessage(cmsg) == Locked(epoch);
+            } else {
+                assert cmsg == CInvalid();
+                assert AbstractifyCMessage(cmsg) == Invalid;
+            }
+        }
     }
 
     /* Proof that for all epochs, MarshallLockMsg(epoch) is a byte sequence that abstractifies
