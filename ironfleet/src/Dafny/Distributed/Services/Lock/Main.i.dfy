@@ -807,7 +807,9 @@ module Main_i refines Main_s {
         ){
             var bytes := MarshallLockMsg(epoch);
             var cmsg := DemarshallData(bytes);
+            var msg := AbstractifyCMessage(cmsg);
             if (Demarshallable(bytes, CMessageGrammar())) {
+                lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
                 assert AbstractifyCMessage(cmsg) == Locked(epoch);
             } else {
                 assert cmsg == CInvalid();
