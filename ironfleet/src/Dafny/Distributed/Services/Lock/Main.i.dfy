@@ -41,8 +41,8 @@ module Main_i refines Main_s {
     {
         reveal_abstractifyPacket();
         var lb := ImplToProtocol(config, db);   // DS to LS
-        var glb := AugmentLS(config, lb);       // LS to GLS
-        sb := ProtocolToSpec(config, glb);      // GLS to SS
+        var glb := augmentLS(config, lb);       // LS to GLS
+        sb := protocolToSpec(config, glb);      // GLS to SS
     }
 
 
@@ -417,7 +417,7 @@ module Main_i refines Main_s {
 
     /* Takes a sequence of LS_States states and returns a corresponding sequence of GLS_States
     */
-    lemma AugmentLS(config:ConcreteConfiguration, lb:seq<LS_State>) returns (glb: seq<GLS_State>) 
+    lemma augmentLS(config:ConcreteConfiguration, lb:seq<LS_State>) returns (glb: seq<GLS_State>) 
         requires |config| > 0;
         requires SeqIsUnique(config);
         requires |lb| > 0;
@@ -471,7 +471,7 @@ module Main_i refines Main_s {
 
     /* Takes a sequence of GLS_States states and returns a corresponding sequence of Service_States
     */
-    lemma ProtocolToSpec(config:ConcreteConfiguration, glb:seq<GLS_State>) returns (sb:seq<ServiceState>)
+    lemma protocolToSpec(config:ConcreteConfiguration, glb:seq<GLS_State>) returns (sb:seq<ServiceState>)
         requires |config| > 0;
         requires SeqIsUnique(config);
         requires |glb| > 0;
@@ -484,8 +484,8 @@ module Main_i refines Main_s {
     {
         sb := [];
         var i := 0;
-        ServerInvariantGLS(glb);
-        ConfigInvariantGLS(glb);
+        serverInvariantGLS(glb);
+        configInvariantGLS(glb);
         assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
         assert forall ep :: ep in glb[i].ls.servers ==> (
             glb[0].ls.servers[ep].config == config
@@ -512,19 +512,19 @@ module Main_i refines Main_s {
             sb := sb + [GLS_to_Spec(glb[i])];
             assert GLS_Init(glb[0], config);
             assert LS_Init(glb[0].ls, config);
-            GLS_to_Spec_Correct(glb[0], sb[0], config);
+            GLS2SpecCorrect(glb[0], sb[0], config);
             if i > 0 {
                 assert forall k :: 0 <= k < |glb| - 1 ==>  GLS_Next(glb[k], glb[k+1]);
                 assert 0 <= i-1 < |glb| - 1;
                 assert GLS_Next(glb[i-1], glb[i]);
-                ServiceNextGood(glb[i-1], glb[i], sb[i-1], sb[i], config);
+                serviceNextGood(glb[i-1], glb[i], sb[i-1], sb[i], config);
                 assert sb[i-1] == sb[i] || Service_Next(sb[i-1], sb[i]);
-                GLS_to_Spec_Correct(glb[i], sb[i], config);
+                GLS2SpecCorrect(glb[i], sb[i], config);
 
                 // Stuff for proving Service_Correspondence
                 assert Service_Invariant(glb[i-1], sb[i-1]);
                 Service_Invariant_Correct(glb[i-1], sb[i-1]);
-                Service_Induction(glb[i-1], sb[i-1], glb[i], sb[i]);
+                serviceInduction(glb[i-1], sb[i-1], glb[i], sb[i]);
                 assert Service_Invariant(glb[i], sb[i]);
                 Service_Invariant_Correct(glb[i], sb[i]);
                 assert Service_Correspondence_GLS_to_SS(glb[i].ls.environment.sentPackets, sb[i]);
@@ -533,7 +533,7 @@ module Main_i refines Main_s {
         }
         assert GLS_Init(glb[0], config);
         assert sb[0] == GLS_to_Spec(glb[0]);
-        GLS_to_Spec_Correct(glb[0], sb[0], config);
+        GLS2SpecCorrect(glb[0], sb[0], config);
         assert forall k :: 0 < k < |sb| ==> sb[k-1] == sb[k] || Service_Next(sb[k-1], sb[k]);
         assert forall i :: 0 <= i < |sb| - 1 ==> 0 < i+1 < |sb|;
         assert forall i :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
@@ -542,7 +542,7 @@ module Main_i refines Main_s {
 
     /* Proof that for any sequence of consecutive GLS_States, the config of every node in
     * the server maps are the same */
-    lemma ConfigInvariantGLS(glb:seq<GLS_State>)
+    lemma configInvariantGLS(glb:seq<GLS_State>)
         requires |glb| > 0;
         requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
         requires forall i :: 0 <= i < |glb| ==> glb[i].ls.servers.Keys == glb[0].ls.servers.Keys;
@@ -553,19 +553,19 @@ module Main_i refines Main_s {
         );
     {
         if (|glb| > 1) {
-            GLS_Next_Config_Invarint(glb[0], glb[1]);
+            GLS_NextConfigInvarint(glb[0], glb[1]);
             var tail := glb[1..];
             assert forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
             assert forall i :: 0 <= i < |tail| - 1 ==> tail[i] == glb[i+1];
             assert forall i :: 0 <= i < |tail| - 1 ==> 1 <= i+1 < |glb| - 1;
             assert forall i :: 0 <= i < |tail| - 1 ==>  GLS_Next(tail[i], tail[i+1]);
-            ConfigInvariantGLS(tail);
+            configInvariantGLS(tail);
         }
     }
 
     /* Proof that for two neighboring GLS_States, the config of every node in
     * the server maps are the same */
-    lemma GLS_Next_Config_Invarint(gls: GLS_State, gls': GLS_State)
+    lemma GLS_NextConfigInvarint(gls: GLS_State, gls': GLS_State)
         requires GLS_Next(gls, gls');
         requires gls.ls.servers.Keys == gls'.ls.servers.Keys;
         ensures forall ep :: ep in gls.ls.servers ==> (
@@ -576,32 +576,32 @@ module Main_i refines Main_s {
 
     /* Proof that for any sequence of consecutive GLS_States, the domains of their respective server
     * maps are the same */
-    lemma ServerInvariantGLS(glb:seq<GLS_State>)
+    lemma serverInvariantGLS(glb:seq<GLS_State>)
         requires |glb| > 0;
         requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
         ensures forall i :: 0 <= i < |glb| ==> glb[i].ls.servers.Keys == glb[0].ls.servers.Keys;
     {
         if (|glb| > 1) {
-            GLS_Next_Server_Invarint(glb[0], glb[1]);
+            GLS_NextServerInvarint(glb[0], glb[1]);
             var tail := glb[1..];
             assert forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
             assert forall i :: 0 <= i < |tail| - 1 ==> tail[i] == glb[i+1];
             assert forall i :: 0 <= i < |tail| - 1 ==> 1 <= i+1 < |glb| - 1;
             assert forall i :: 0 <= i < |tail| - 1 ==>  GLS_Next(tail[i], tail[i+1]);
-            ServerInvariantGLS(tail);
+            serverInvariantGLS(tail);
         }
     }
 
     /* Proof that for two neighboring GLS_States, the domains of their respective server
     * maps are the same */
-    lemma GLS_Next_Server_Invarint(gls: GLS_State, gls': GLS_State)
+    lemma GLS_NextServerInvarint(gls: GLS_State, gls': GLS_State)
         requires GLS_Next(gls, gls');
         ensures gls.ls.servers.Keys == gls'.ls.servers.Keys
     {}
 
 
     /* Proof that GLS_Next(gls, gls') implies Service_Next(ss, ss') */
-    lemma ServiceNextGood(gls: GLS_State, gls': GLS_State, ss: ServiceState', ss': ServiceState', config: ConcreteConfiguration) 
+    lemma serviceNextGood(gls: GLS_State, gls': GLS_State, ss: ServiceState', ss': ServiceState', config: ConcreteConfiguration) 
         requires GLS_Next(gls, gls');
         requires ss == GLS_to_Spec(gls) && ss' == GLS_to_Spec(gls');
         requires forall ep :: ep in config <==> ep in gls.ls.servers.Keys;
@@ -628,7 +628,7 @@ module Main_i refines Main_s {
     }
 
 
-    lemma GLS_to_Spec_Correct(gls: GLS_State, ss: ServiceState', config: ConcreteConfiguration) 
+    lemma GLS2SpecCorrect(gls: GLS_State, ss: ServiceState', config: ConcreteConfiguration) 
         requires |config| > 0;
         requires SeqIsUnique(config);
         requires ss == GLS_to_Spec(gls);
@@ -701,7 +701,7 @@ module Main_i refines Main_s {
 
     /* Proof by induction that Service_Invariant(gls, ss) on i'th state
     * implies Service_Invariant(gls', ss') on (i+1)'th state */
-    lemma Service_Induction(
+    lemma serviceInduction(
         gls: GLS_State, 
         ss:ServiceState,
         gls': GLS_State, 
@@ -755,7 +755,7 @@ module Main_i refines Main_s {
 
             
             // Every packet in gls' statisfying antecedent has type Locked
-            new_transfer_packet_lemma(new_packet.msg);
+            newTransferPacketLemma(new_packet.msg);
             assert forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet.msg;
             assert forall p, epoch :: (
                 && p in gls'.ls.environment.sentPackets 
@@ -790,12 +790,11 @@ module Main_i refines Main_s {
             // If gls->gls' is a NodeAccept step
             // assert |gls'.ls.environment.sentPackets| == |gls.ls.environment.sentPackets| + 1;
         }
-
     }
 
     /* Proof that the new Transfer message created on NodeGrant does not correspond to 
     * any AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) */
-    lemma new_transfer_packet_lemma(new_packet_msg: LockMessage)
+    lemma newTransferPacketLemma(new_packet_msg: LockMessage)
         requires new_packet_msg.Transfer?;
         requires 0 <= new_packet_msg.transfer_epoch < 0x1_0000_0000_0000_0000;
         ensures forall epoch :: AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != new_packet_msg;
