@@ -700,21 +700,30 @@ module Main_i refines Main_s {
 
 
     /* True iff gls-> gls' is a NodeGrant step */
-    predicate NodeGrantStep(gls: GLS_State, gls': GLS_State) {
-        && gls.ls.environment.nextStep.LEnvStepHostIos? 
+    predicate NodeGrantStep(gls: GLS_State, gls': GLS_State) 
+        requires gls.ls.environment.nextStep.LEnvStepHostIos?
+        requires GLS_Next(gls, gls');
+    {
+        GLS_NextServerInvarint(gls, gls');
         && gls.ls.environment.nextStep.actor in gls.ls.servers
-        && gls.ls.environment.nextStep.actor in gls'.ls.servers
         && NodeGrant(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
-        // && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
+        && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
     }
 
     /* True iff gls-> gls' is a NodeAccept step */
-    predicate NodeAcceptStep(gls: GLS_State, gls': GLS_State) {
-        && gls.ls.environment.nextStep.LEnvStepHostIos? 
+    predicate NodeAcceptStep(gls: GLS_State, gls': GLS_State) 
+        requires gls.ls.environment.nextStep.LEnvStepHostIos?
+        requires GLS_Next(gls, gls');
+    {
+        GLS_NextServerInvarint(gls, gls');
+        var ios := gls.ls.environment.nextStep.ios;
         && gls.ls.environment.nextStep.actor in gls.ls.servers
-        && gls.ls.environment.nextStep.actor in gls'.ls.servers
-        && NodeAccept(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], gls.ls.environment.nextStep.ios)
-        // && gls.ls.servers[gls.ls.environment.nextStep.actor].held && gls.ls.servers[gls.ls.environment.nextStep.actor].epoch < 0xFFFF_FFFF_FFFF_FFFF
+        && NodeAccept(gls.ls.servers[gls.ls.environment.nextStep.actor], gls'.ls.servers[gls.ls.environment.nextStep.actor], ios)
+        && !ios[0].LIoOpTimeoutReceive? 
+        && !gls.ls.servers[gls.ls.environment.nextStep.actor].held
+        && ios[0].r.src in gls.ls.servers[gls.ls.environment.nextStep.actor].config
+        && ios[0].r.msg.Transfer? 
+        && ios[0].r.msg.transfer_epoch > gls.ls.servers[gls.ls.environment.nextStep.actor].epoch
     }
 
 
@@ -732,14 +741,66 @@ module Main_i refines Main_s {
         requires Service_Invariant(gls, ss);
         ensures Service_Invariant(gls', ss');
     {
-        if (NodeGrantStep(gls, gls')) {
-            serviceInductionNodeGrant(gls, ss, gls', ss');
-        } else if (NodeAcceptStep(gls, gls')) {
-            serviceInductionNodeAccept(gls, ss, gls', ss');
-        } else {
-            assert Service_Invariant(gls', ss');
-        }
+        assert IsValidLEnvStep(gls.ls.environment, gls.ls.environment.nextStep);
+        match gls.ls.environment.nextStep {
+            case LEnvStepHostIos(actor, ios) => {
+                if (gls.ls.environment.nextStep.actor in gls.ls.servers) {
+                    if (NodeGrantStep(gls, gls')) {
+                        serviceInductionNodeGrant(gls, ss, gls', ss');
+                    } else if NodeAcceptStep(gls, gls') {
+                        serviceInductionNodeAccept(gls, ss, gls', ss');
+                    } else {
+                        assert gls.ls.servers == gls.ls.servers;
+                        assert Service_Invariant(gls', ss');
+                    }
+                } else {
+                    // !(gls.ls.environment.nextStep.actor in gls.ls.servers)
+                    assert gls'.ls.servers == gls.ls.servers;
+                    assert LEnvironment_PerformIos(gls.ls.environment, gls'.ls.environment, actor, ios);
+                    var new_packets := set io | io in ios && io.LIoOpSend? :: io.s;
+                    assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + new_packets;
+                    assert forall p :: p in new_packets ==> !(p.src in gls.ls.servers);
+                    reveal_GLS_to_Spec();
+                    assert forall p :: p in new_packets ==> !(p.src in ss.hosts);
+                    assert gls'.history == gls.history;
+                    assert Service_Invariant(gls', ss');
+                }
+            } // end case LEnvStepHostIos
+            case LEnvStepDeliverPacket(p) => serviceInductionNoIO(gls, ss, gls', ss');
+            case LEnvStepAdvanceTime => serviceInductionNoIO(gls, ss, gls', ss');
+            case LEnvStepStutter => serviceInductionNoIO(gls, ss, gls', ss');
+        } // end match
     }
+    
+
+    /* Proof by induction that Service_Invariant(gls, ss) on i'th state implies 
+    * Service_Invariant(gls', ss') on (i+1)'th state, given that gls->gls' is a 
+    * step that does not perform any I/O with respect to the environment */
+    lemma serviceInductionNoIO(gls: GLS_State, ss:ServiceState, gls': GLS_State, ss':ServiceState)
+        requires GLS_Next(gls, gls');
+        requires ss == GLS_to_Spec(gls);
+        requires ss' == GLS_to_Spec(gls');
+        requires ss == ss' || Service_Next(ss, ss');
+        requires Service_Invariant(gls, ss);
+        requires !gls.ls.environment.nextStep.LEnvStepHostIos?
+        ensures Service_Invariant(gls', ss');
+    {   
+        assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets;
+        historyPreservation(gls, gls');
+        reveal GLS_to_Spec();
+        assert ss'.history == gls'.history;
+        assert ss.history == gls.history;
+        assert ss'.history == ss.history;
+        assert Service_Invariant(gls', ss');
+    }
+
+    /* Helper: Proof that if gls->gls' is a step that does no I/O with the environment,
+    * then gls'.history == gls.history */
+    lemma historyPreservation(gls: GLS_State, gls': GLS_State) 
+        requires GLS_Next(gls, gls');
+        requires !gls.ls.environment.nextStep.LEnvStepHostIos?
+        ensures gls'.history == gls.history;
+    {}
 
 
     /* Proof by induction that Service_Invariant(gls, ss) on i'th state implies 
@@ -755,10 +816,19 @@ module Main_i refines Main_s {
         requires ss' == GLS_to_Spec(gls');
         requires ss == ss' || Service_Next(ss, ss');
         requires Service_Invariant(gls, ss);
+        requires gls.ls.environment.nextStep.LEnvStepHostIos?;
         requires NodeAcceptStep(gls, gls');
         ensures Service_Invariant(gls', ss');
     {
-        assert Service_Invariant(gls', ss');
+        var src := gls.ls.environment.nextStep.actor;
+        var ios := gls.ls.environment.nextStep.ios;
+        assert (gls'.ls.servers[src].held    // reminder of the facts that I know at this point
+                && |ios| == 2
+                && ios[1].LIoOpSend?
+                && ios[1].s.msg.Locked?
+                && gls'.ls.servers[src].epoch == ios[0].r.msg.transfer_epoch == ios[1].s.msg.locked_epoch
+        );
+        // assert Service_Invariant(gls', ss');
     }
 
 
@@ -775,12 +845,11 @@ module Main_i refines Main_s {
         requires ss' == GLS_to_Spec(gls');
         requires ss == ss' || Service_Next(ss, ss');
         requires Service_Invariant(gls, ss);
+        requires gls.ls.environment.nextStep.LEnvStepHostIos?;
         requires NodeGrantStep(gls, gls');
         ensures Service_Invariant(gls', ss');
     {
         reveal_GLS_to_Spec();
-        // If gls->gls' is a NodeGrant step
-        assert gls.ls.environment.nextStep.LEnvStepHostIos?;
         var src := gls.ls.environment.nextStep.actor;
         var ios := gls.ls.environment.nextStep.ios;
 
@@ -838,7 +907,6 @@ module Main_i refines Main_s {
         );
         assert Service_Correspondence_GLS_to_SS(gls'.ls.environment.sentPackets, ss);
         assert Service_Invariant(gls', ss');
-
     }
 
 
