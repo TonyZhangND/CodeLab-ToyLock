@@ -677,7 +677,20 @@ module Main_i refines Main_s {
     /* Inductive invariant for proving Service_Correspondence */
     predicate Service_Invariant(gls: GLS_State, ss:ServiceState) 
     {
-        && (forall p, epoch ::
+        &&(forall ep :: ep in gls.ls.servers ==> (
+            forall ep' :: ep' in gls.ls.servers[ep].config ==> ep' in gls.ls.servers
+            )
+        )
+        &&(forall p ::
+            && p in gls.ls.environment.sentPackets 
+            && p.src in ss.hosts 
+            && p.dst in ss.hosts 
+            && p.msg.Transfer?
+        ==>
+            1 <= p.msg.transfer_epoch <= |ss.history|
+            && p.dst == ss.history[p.msg.transfer_epoch-1]
+        )
+        &&(forall p, epoch ::
             p in gls.ls.environment.sentPackets 
             && p.src in ss.hosts 
             && p.dst in ss.hosts 
@@ -685,10 +698,10 @@ module Main_i refines Main_s {
         ==>
             p.msg == Locked(epoch)
         )
-        && (forall ep :: ep in gls.ls.servers ==>
-            0 <= gls.ls.servers[ep].epoch <= 0xFFFF_FFFF_FFFF_FFFF
+        &&(forall ep :: ep in gls.ls.servers ==>
+            0 <= gls.ls.servers[ep].epoch <= |ss.history|
         )
-        && Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss)
+        &&(Service_Correspondence_GLS_to_SS(gls.ls.environment.sentPackets, ss))
     }
 
 
@@ -820,15 +833,81 @@ module Main_i refines Main_s {
         requires NodeAcceptStep(gls, gls');
         ensures Service_Invariant(gls', ss');
     {
+        reveal GLS_to_Spec();
         var src := gls.ls.environment.nextStep.actor;
         var ios := gls.ls.environment.nextStep.ios;
         assert (gls'.ls.servers[src].held    // reminder of the facts that I know at this point
                 && |ios| == 2
+                && ios[0].LIoOpReceive?
+                && ios[0].r.msg.Transfer?
                 && ios[1].LIoOpSend?
                 && ios[1].s.msg.Locked?
                 && gls'.ls.servers[src].epoch == ios[0].r.msg.transfer_epoch == ios[1].s.msg.locked_epoch
         );
-        // assert Service_Invariant(gls', ss');
+        var transfer_packet := ios[0].r;
+        var locked_packet := ios[1].s;
+        var lepoch := locked_packet.msg.locked_epoch;
+        assert transfer_packet in gls.ls.environment.sentPackets;
+        assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + {locked_packet};
+        assert gls'.history == gls.history;
+
+        // Prove that every packet satisfying premise of Service Correspondence is of
+        // type Locked
+        assert ss'.hosts == ss.hosts;
+        forall epoch | locked_packet.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) 
+        ensures (
+            epoch == lepoch
+            && locked_packet.msg == Locked(epoch)
+        ){
+            abstractifyEpochEquivalence(epoch);
+            assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != Invalid;
+            assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch);
+        }
+        assert (forall p, epoch ::
+            p in gls'.ls.environment.sentPackets 
+            && p.src in ss'.hosts 
+            && p.dst in ss'.hosts 
+            && p.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch)))
+        ==>
+            p.msg == Locked(epoch)
+        );
+
+
+        // Prove that for any node in gls'.ls.servers, its epoch is bounded by
+        // 0 <= node.epoch <= |ss'.history|
+        assert transfer_packet.src in gls.ls.servers[src].config;
+        assert forall ep :: ep in gls.ls.servers[src].config ==> ep in gls.ls.servers;
+        assert forall ep :: ep in gls.ls.servers ==> ep in ss.hosts;
+        assert transfer_packet.src in ss.hosts;
+        assert transfer_packet.dst in ss.hosts;
+        assert transfer_packet in gls.ls.environment.sentPackets;
+        assert 0 <= lepoch <= |ss.history|;
+        assert (forall ep :: ep in gls'.ls.servers ==>
+            0 <= gls'.ls.servers[ep].epoch <= |ss'.history|
+        );
+        
+
+        // Prove Service_Correspondence_GLS_to_SS(gls'.ls.environment.sentPackets, ss');
+        assert 1 <= lepoch <= |ss'.history|;
+        forall epoch | locked_packet.msg == AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) 
+        ensures (
+            epoch == lepoch
+            && 1 <= epoch <= |ss'.history|
+            && locked_packet.src == ss'.history[epoch-1]
+        ){
+            abstractifyEpochEquivalence(epoch);
+            assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) != Invalid;
+            assert AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch);
+            assert epoch == lepoch;
+            assert 1 <= epoch <= |ss'.history|;
+            assert transfer_packet.dst == ss'.history[transfer_packet.msg.transfer_epoch-1];
+            assert transfer_packet.dst == locked_packet.src;
+            assert transfer_packet.msg.transfer_epoch == epoch;
+            assert locked_packet.src == ss'.history[epoch-1];
+        }
+        assert Service_Correspondence_GLS_to_SS(gls'.ls.environment.sentPackets, ss');
+
+        assert Service_Invariant(gls', ss');
     }
 
 
@@ -862,14 +941,20 @@ module Main_i refines Main_s {
         assert ss'.history == ss.history + [dst];
         assert ss'.hosts == ss.hosts;
 
-        // Prove that new_packet has epoch 0 <= epoch < 0x1_0000_0000_0000_0000
+        // Prove that new_packet has epoch 1 <= epoch <= |ss'.history|
         assert new_packet.msg.Transfer?;
         var epoch := new_packet.msg.transfer_epoch;
         assert new_packet.msg == Transfer(epoch);
-        assert 0 <= gls.ls.servers[src].epoch < 0xFFFF_FFFF_FFFF_FFFF;
+        assert 0 <= gls.ls.servers[src].epoch <= |ss.history|;
         assert epoch == gls.ls.servers[src].epoch + 1;
-        assert 0 <= epoch <= 0xFFFF_FFFF_FFFF_FFFF;
-        
+        assert |ss'.history| == |ss.history| + 1;
+        assert 1 <= epoch <= |ss'.history|;
+
+        // Prove that new_packet.dst == ss'.history[new_packet.msg.transfer_epoch-1]
+        assert new_packet.msg.transfer_epoch == |ss'.history|;
+        assert new_packet.dst == ss'.history[new_packet.msg.transfer_epoch-1];
+
+
         // Now we know that the set of LockedMessages are the same 
         // in gls.ls.env.sentPackets and gls'.ls.env.sentPackets.
         assert gls'.ls.environment.sentPackets == gls.ls.environment.sentPackets + {new_packet};
@@ -922,16 +1007,25 @@ module Main_i refines Main_s {
             || AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch)
             || AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Invalid
         ){
-            var bytes := MarshallLockMsg(epoch);
-            var cmsg := DemarshallData(bytes);
-            var msg := AbstractifyCMessage(cmsg);
-            if (Demarshallable(bytes, CMessageGrammar())) {
-                lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
-                assert AbstractifyCMessage(cmsg) == Locked(epoch);
-            } else {
-                assert cmsg == CInvalid();
-                assert AbstractifyCMessage(cmsg) == Invalid;
-            }
+            abstractifyEpochEquivalence(epoch);
+        }
+    }
+
+    /* Proof that for any epoch, AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) 
+    * produces either Locked(epoch) or Invalid */
+    lemma abstractifyEpochEquivalence(epoch: int) 
+        ensures AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Locked(epoch)
+                || AbstractifyCMessage(DemarshallData(MarshallLockMsg(epoch))) == Invalid;
+    {
+        var bytes := MarshallLockMsg(epoch);
+        var cmsg := DemarshallData(bytes);
+        var msg := AbstractifyCMessage(cmsg);
+        if (Demarshallable(bytes, CMessageGrammar())) {
+            lemma_ParseMarshallLockedAbstract(bytes, epoch, msg);
+            assert AbstractifyCMessage(cmsg) == Locked(epoch);
+        } else {
+            assert cmsg == CInvalid();
+            assert AbstractifyCMessage(cmsg) == Invalid;
         }
     }
 }
