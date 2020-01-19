@@ -427,6 +427,12 @@ module Main_i refines Main_s {
         ensures  GLS_Init(glb[0], config); 
         ensures  forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
         ensures  forall i :: 0 <= i < |glb| ==> Service_Correspondence_LS_to_GLS(lb[i].environment.sentPackets, glb[i].ls.environment.sentPackets);
+        ensures  forall i ::  0 <= i < |glb| - 1 ==> (
+            (glb[i].ls.environment.nextStep.LEnvStepHostIos? 
+            && NodeGrantStep(glb[i], glb[i+1])) 
+            ==> 
+            glb[i].ls.servers[glb[i].ls.environment.nextStep.actor].epoch == |glb[i].history|
+        );
     {   
         var history := [config[0]];
         glb := [GLS_State(lb[0], history)];
@@ -477,6 +483,12 @@ module Main_i refines Main_s {
         requires |glb| > 0;
         requires GLS_Init(glb[0], config);
         requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        requires forall i ::  0 <= i < |glb| - 1 ==> (
+            (glb[i].ls.environment.nextStep.LEnvStepHostIos? 
+            && NodeGrantStep(glb[i], glb[i+1])) 
+            ==> 
+            glb[i].ls.servers[glb[i].ls.environment.nextStep.actor].epoch == |glb[i].history|
+        );
         ensures  |glb| == |sb|;
         ensures  Service_Init(sb[0], Collections__Maps2_s.mapdomain(glb[0].ls.servers));
         ensures  forall i {:trigger Service_Next(sb[i], sb[i+1])} :: 0 <= i < |sb| - 1 ==> sb[i] == sb[i+1] || Service_Next(sb[i], sb[i+1]);
@@ -522,6 +534,15 @@ module Main_i refines Main_s {
                 GLS2SpecCorrect(glb[i], sb[i], config);
 
                 // Stuff for proving Service_Correspondence
+                assert forall k :: 0 < k < |glb| ==> 0 <= k-1 < |glb| - 1;
+                assert (
+                    glb[i-1].ls.environment.nextStep.LEnvStepHostIos? 
+                    && NodeGrantStep(glb[i-1], glb[i])
+                    ==> 
+                    glb[i-1].ls.servers[glb[i-1].ls.environment.nextStep.actor].epoch == |glb[i-1].history|
+                );
+                GLS2SpecCorrect(glb[i-1], sb[i-1], config);
+                assert glb[i-1].history == sb[i-1].history;
                 assert Service_Invariant(glb[i-1], sb[i-1]);
                 Service_Invariant_Correct(glb[i-1], sb[i-1]);
                 serviceInduction(glb[i-1], sb[i-1], glb[i], sb[i]);
@@ -751,6 +772,11 @@ module Main_i refines Main_s {
         requires ss == GLS_to_Spec(gls);
         requires ss' == GLS_to_Spec(gls');
         requires ss == ss' || Service_Next(ss, ss');
+        requires 
+            (gls.ls.environment.nextStep.LEnvStepHostIos? 
+            && NodeGrantStep(gls, gls')) 
+            ==> 
+            gls.ls.servers[gls.ls.environment.nextStep.actor].epoch == |ss.history|;
         requires Service_Invariant(gls, ss);
         ensures Service_Invariant(gls', ss');
     {
@@ -926,6 +952,7 @@ module Main_i refines Main_s {
         requires Service_Invariant(gls, ss);
         requires gls.ls.environment.nextStep.LEnvStepHostIos?;
         requires NodeGrantStep(gls, gls');
+        requires NodeGrantStep(gls, gls') ==> gls.ls.servers[gls.ls.environment.nextStep.actor].epoch == |ss.history|;
         ensures Service_Invariant(gls', ss');
     {
         reveal_GLS_to_Spec();
@@ -951,6 +978,7 @@ module Main_i refines Main_s {
         assert 1 <= epoch <= |ss'.history|;
 
         // Prove that new_packet.dst == ss'.history[new_packet.msg.transfer_epoch-1]
+        assert gls.ls.servers[src].epoch == |ss.history|; 
         assert new_packet.msg.transfer_epoch == |ss'.history|;
         assert new_packet.dst == ss'.history[new_packet.msg.transfer_epoch-1];
 
