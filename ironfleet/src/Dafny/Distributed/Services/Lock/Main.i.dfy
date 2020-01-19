@@ -473,7 +473,35 @@ module Main_i refines Main_s {
         assert forall k :: 0 < k < |glb| ==>  GLS_Next(glb[k-1], glb[k]); 
         assert forall i :: 0 <= i < |glb|-1 ==> 0 < i+1 && i+1 < |glb|;
         assert forall i :: 0 <= i < |glb|-1 ==>  GLS_Next(glb[i], glb[i+1]);
+        historyLength(config, glb);
     }
+
+
+    lemma historyLength(config:ConcreteConfiguration, glb: seq<GLS_State>) 
+        requires |config| > 0;
+        requires |glb| > 0;
+        requires SeqIsUnique(config);
+        requires GLS_Init(glb[0], config); 
+        requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        ensures  forall i ::  0 <= i < |glb| - 1 ==> (
+            (glb[i].ls.environment.nextStep.LEnvStepHostIos? 
+            && NodeGrantStep(glb[i], glb[i+1])) 
+            ==> 
+            glb[i].ls.servers[glb[i].ls.environment.nextStep.actor].epoch == |glb[i].history|
+        );
+    {
+        // serverInvariantGLS(glb);
+        // configInvariantGLS(glb);
+        // assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
+        // assert forall i :: 0 <= i < |glb| ==> (
+        //     forall ep :: ep in glb[i].ls.servers ==> (
+        //         glb[i].ls.servers[ep].config == config
+        //     )
+        // );
+
+        // node.held ==> node.epoch == |history|
+    }
+
 
     /* Takes a sequence of GLS_States states and returns a corresponding sequence of Service_States
     */
