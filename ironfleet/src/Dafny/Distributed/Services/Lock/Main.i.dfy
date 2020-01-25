@@ -473,7 +473,9 @@ module Main_i refines Main_s {
         assert forall k :: 0 < k < |glb| ==>  GLS_Next(glb[k-1], glb[k]); 
         assert forall i :: 0 <= i < |glb|-1 ==> 0 < i+1 && i+1 < |glb|;
         assert forall i :: 0 <= i < |glb|-1 ==>  GLS_Next(glb[i], glb[i+1]);
-        historyLength(config, glb);
+        atMostOneHolderInv(config, glb);
+        historyLengthInv(config, glb);
+        
     }
 
 
@@ -488,21 +490,90 @@ module Main_i refines Main_s {
         ensures forall i :: 0 < i < |config| ==> !s.ls.servers[config[i]].held;
     {}
 
-    /* Helper: Proof that for any valid sequence of GLS_State, the ensured predicate is true */
-    lemma {:axiom} historyLength(config:ConcreteConfiguration, glb: seq<GLS_State>) 
+    /* Helper: Proof that for any valid sequence of GLS_State, there is at most one node
+    * holding the lock at any state */
+    lemma {:axiom} atMostOneHolderInv(config: ConcreteConfiguration, glb: seq<GLS_State>) 
         requires |config| > 0;
         requires |glb| > 0;
         requires SeqIsUnique(config);
         requires GLS_Init(glb[0], config); 
         requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
-        ensures  forall i ::  0 <= i < |glb| - 1 ==> (
-            glb[i].ls.environment.nextStep.LEnvStepHostIos? 
-            && glb[i].ls.environment.nextStep.actor in glb[i].ls.servers
-            && glb[i].ls.servers[glb[i].ls.environment.nextStep.actor].held
+        ensures forall i :: 0 <= i < |glb| ==>  atMostOneHolder(glb[i]);
+    {
+        // First ensure that server and config are consistent in all states
+        serverInvariantGLS(glb);
+        configInvariantGLS(glb);
+        assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
+        assert forall i :: 0 <= i < |glb| ==> (
+            forall ep :: ep in glb[i].ls.servers ==> (
+                glb[i].ls.servers[ep].config == config
+            )
+        );
+        // There is one lock holder at init
+        oneHolderAtInit(config, glb[0]);
+
+        // Main inductive loop
+        var i := 0;
+        while (i < |glb| - 1) 
+            decreases |glb| - 1 - i;
+            invariant 0 <= i <= |glb| - 1;
+            invariant forall k :: 0 <= k <= i ==> atMostOneHolder(glb[k]);
+        {
+            var s := glb[i];
+            var s' := glb[i+1];
+            atMostOneHolderInvInduction(s, s');
+            i := i + 1;
+        }
+
+    }
+
+    /* Helper: Proof that given GLS_State atMostOneHolder(s) and GLS_Next(s, s'), there is
+    * then atMostOneHolder(s') */
+    lemma atMostOneHolderInvInduction(s: GLS_State, s': GLS_State) 
+        requires atMostOneHolder(s);
+        requires GLS_Next(s, s');
+        ensures atMostOneHolder(s');
+    {} 
+
+
+    /* Helper: Proof that the historyLengthMatchesEpoch(s) inductive invariant
+    * in historyLengthInduction give us the desired corollary */
+    lemma historyLengthInductionCorrect(s: GLS_State) 
+        requires |s.history| > 0;
+        // requires atMostOneHolder(s);
+        requires historyLengthMatchesEpoch(s)
+        ensures (  // this is a corollary of the above two ensures statements
+            && s.ls.environment.nextStep.LEnvStepHostIos? 
+            && s.ls.environment.nextStep.actor in s.ls.servers
+            && s.ls.servers[s.ls.environment.nextStep.actor].held
             ==> 
-            glb[i].ls.servers[glb[i].ls.environment.nextStep.actor].epoch == |glb[i].history|
+            s.ls.servers[s.ls.environment.nextStep.actor].epoch == |s.history|
         );
     {
+        if (
+            && s.ls.environment.nextStep.LEnvStepHostIos? 
+            && s.ls.environment.nextStep.actor in s.ls.servers
+            && s.ls.servers[s.ls.environment.nextStep.actor].held
+        ) {
+            var holder := s.ls.environment.nextStep.actor;
+            assert holder in s.ls.servers;
+            assert s.ls.servers[holder].held;
+            assert s.ls.servers[holder].epoch == |s.history|;  
+        }
+    }
+
+
+    /* Helper: Proof that for any valid sequence of GLS_State, the ensured predicate is true */
+    lemma {:axiom} historyLengthInv(config:ConcreteConfiguration, glb: seq<GLS_State>) 
+        requires |config| > 0;
+        requires |glb| > 0;
+        requires SeqIsUnique(config);
+        requires GLS_Init(glb[0], config); 
+        requires forall i :: 0 <= i < |glb| - 1 ==>  GLS_Next(glb[i], glb[i+1]);
+        requires forall i :: 0 <= i < |glb| ==>  atMostOneHolder(glb[i]);
+        ensures  forall i ::  0 <= i < |glb| - 1 ==> historyLengthMatchesEpoch(glb[i])
+    {
+        // First ensure that server and config are consistent in all states
         serverInvariantGLS(glb);
         configInvariantGLS(glb);
         assert forall ep :: ep in config <==> ep in glb[0].ls.servers;
@@ -512,15 +583,7 @@ module Main_i refines Main_s {
             )
         );
 
-        var someoneHoldsLock := true;
-        var s := glb[0];
-        var holder := config[0];
-        oneHolderAtInit(config, s);
-        assert s.history == [holder];
-        assert s.ls.servers[holder].held;       // holder holds the lock
-        assert |s.history| == s.ls.servers[holder].epoch;
         assert historyLengthMatchesEpoch(glb[0]);
-        assert someHolder(glb[0]);
         
         // Main inductive loop
         var i := 0;
@@ -530,58 +593,10 @@ module Main_i refines Main_s {
             invariant forall k :: 0 <= k < |glb| - 1 ==> GLS_Next(glb[k], glb[k+1]);
             invariant forall k :: 0 <= k <= i ==> |glb[k].history| > 0;
             invariant forall k :: 0 <= k < i ==> |glb[k+1].history| >= |glb[k].history|;
-            invariant forall k :: 0 <= k <= i ==> atMostOneHolder(glb[k]);
             invariant forall k :: 0 <= k <= i ==> historyLengthMatchesEpoch(glb[k]);
-            invariant someoneHoldsLock <==> someHolder(glb[i]);
-            invariant forall k :: 0 <= k < i ==> (
-                if glb[k].ls.environment.nextStep.LEnvStepHostIos? then 
-                    if NodeGrantStep(glb[k], glb[k+1]) then
-                        someHolder(glb[k])
-                        && !someHolder(glb[k+1])
-                    else if NodeAcceptStep(glb[k], glb[k+1]) then
-                        !someHolder(glb[k])
-                        && someHolder(glb[k+1])
-                    else 
-                        someHolder(glb[k+1]) == someHolder(glb[k])
-                else
-                    someHolder(glb[k+1]) == someHolder(glb[k])
-            );
-            invariant forall k :: 0 <= k <= i ==> (
-                glb[k].ls.environment.nextStep.LEnvStepHostIos?
-                && glb[k].ls.environment.nextStep.actor in glb[k].ls.servers
-                && glb[k].ls.servers[glb[k].ls.environment.nextStep.actor].held
-                ==>
-                glb[k].ls.servers[glb[k].ls.environment.nextStep.actor].epoch == |glb[k].history|
-            );
         {
-            var s := glb[i];
-            var s' := glb[i+1];
-            if glb[i].ls.environment.nextStep.LEnvStepHostIos? {
-                if (NodeGrantStep(glb[i], glb[i+1])) {
-                    assert someoneHoldsLock;
-                    assert someHolder(glb[i]);
-                } else if (NodeAcceptStep(glb[i], glb[i+1])) {
-                    // TODO: PROVE THAT NODEACCEPT CANNOT PRECEED NODEACCEPT WITHOUT A NODE GRANT IN THE MIDDLE
-                    // noConseqNodeGrant(config, glb, i);
-                    assert !someoneHoldsLock;
-                    assert !someHolder(glb[i]);
-                }
-            }
-            someoneHoldsLock := historyLengthInduction(s, s', someoneHoldsLock);
-            if glb[i].ls.environment.nextStep.LEnvStepHostIos? {
-                if (NodeGrantStep(glb[i], glb[i+1])) {
-                    assert !someoneHoldsLock;
-                    assert someHolder(glb[i]) && !someHolder(glb[i+1]);
-                } else if (NodeAcceptStep(glb[i], glb[i+1])) {
-                    assert someoneHoldsLock;
-                    assert !someHolder(glb[i]) && someHolder(glb[i+1]);
-                } else {
-                    assert someHolder(glb[i]) == someHolder(glb[i+1]);
-                }
-            } else {
-                assert someHolder(glb[i]) == someHolder(glb[i+1]);
-            }
-            historyLengthInductionCorrect(s');
+            var s, s' := glb[i], glb[i+1];
+            historyLengthInvInduction(s, s');
             i := i + 1;
         }
     }
@@ -614,124 +629,16 @@ module Main_i refines Main_s {
         )
     }
 
-    /* Helper: Proof that the historyLengthMatchesEpoch(s) inductive invariant
-    * in historyLengthInduction give us the desired corollary */
-    lemma historyLengthInductionCorrect(s: GLS_State) 
-        requires |s.history| > 0;
-        // requires atMostOneHolder(s);
-        requires historyLengthMatchesEpoch(s)
-        ensures (  // this is a corollary of the above two ensures statements
-            && s.ls.environment.nextStep.LEnvStepHostIos? 
-            && s.ls.environment.nextStep.actor in s.ls.servers
-            && s.ls.servers[s.ls.environment.nextStep.actor].held
-            ==> 
-            s.ls.servers[s.ls.environment.nextStep.actor].epoch == |s.history|
-        );
-    {
-        if (
-            && s.ls.environment.nextStep.LEnvStepHostIos? 
-            && s.ls.environment.nextStep.actor in s.ls.servers
-            && s.ls.servers[s.ls.environment.nextStep.actor].held
-        ) {
-            var holder := s.ls.environment.nextStep.actor;
-            assert holder in s.ls.servers;
-            assert s.ls.servers[holder].held;
-            assert s.ls.servers[holder].epoch == |s.history|;  
-        }
-    }
-
+    
     /* Helper: Inductive step to prove that the atMostOneHolder and historyLengthMatchesEpoch
     *  properties are preserved across GLS_Next */ 
-    lemma historyLengthInduction(s: GLS_State, s': GLS_State, someoneHoldsLock: bool) returns (someoneHoldsLock':bool)
+    lemma historyLengthInvInduction(s: GLS_State, s': GLS_State)
         requires GLS_Next(s, s');
         requires forall ep :: ep in s.ls.servers <==> ep in s'.ls.servers;
-        requires |s.history| > 0;
         requires atMostOneHolder(s);
-        requires someoneHoldsLock <==> someHolder(s);
         requires historyLengthMatchesEpoch(s)
-        requires if s.ls.environment.nextStep.LEnvStepHostIos? then 
-                    if NodeGrantStep(s, s') then
-                        someoneHoldsLock
-                    else if NodeAcceptStep(s, s') then
-                        ! someoneHoldsLock
-                    else 
-                        true
-                else
-                    true
-        ensures atMostOneHolder(s');
         ensures historyLengthMatchesEpoch(s');
-        ensures someoneHoldsLock' <==> someHolder(s');
-        ensures if s.ls.environment.nextStep.LEnvStepHostIos? then 
-            if NodeGrantStep(s, s') then
-                ! someoneHoldsLock'
-            else if NodeAcceptStep(s, s') then
-                someoneHoldsLock'
-            else 
-                someoneHoldsLock' == someoneHoldsLock
-        else
-            someoneHoldsLock' == someoneHoldsLock
-    {
-        if (s.ls.environment.nextStep.LEnvStepHostIos?) {
-            if NodeGrantStep(s, s') {
-                // Prove no one holds the lock in s'
-                var holder := s.ls.environment.nextStep.actor;      // holder in s is the granter of the lock
-                assert s.ls.servers[holder].held;
-                assert forall ep :: (                               // besides holder, no one holds the lock in s
-                    && ep in s.ls.servers
-                    && ep != holder
-                    ==>
-                    ! s.ls.servers[ep].held
-                );
-                assert !s'.ls.servers[holder].held;     // holder lets go of lock in s'
-                assert forall ep :: (                   // all other nodes' lock status is preserved across s->s' step
-                    && ep in s'.ls.servers
-                    && ep != holder 
-                    ==> 
-                    s'.ls.servers[ep].held == s.ls.servers[ep].held
-                );
-                assert forall ep :: ep in s'.ls.servers ==> !s'.ls.servers[ep].held;    // thus no one holds lock in s'
-                assert atMostOneHolder(s') && historyLengthMatchesEpoch(s');            // these post-conditions are trivially true
-                assert !someHolder(s');
-                someoneHoldsLock' := false;
-            } else if NodeAcceptStep(s, s') {
-                // Prove that exactly one person holds lock in s'
-                var acceptor := s.ls.environment.nextStep.actor;    // acceptor of lock in s'
-                assert !someHolder(s);
-                assert forall ep :: ep in s.ls.servers ==> !s.ls.servers[ep].held;
-                assert s'.ls.servers[acceptor].held;                // acceptor grabs lock in s'
-                assert forall ep :: (                               // all other nodes' lock status is preserved across s->s' step
-                    && ep in s'.ls.servers
-                    && ep != acceptor 
-                    ==> 
-                    s'.ls.servers[ep].held == s.ls.servers[ep].held
-                );
-                assert atMostOneHolder(s');
-                assert someHolder(s');
-                someoneHoldsLock' := true;
-
-                // Prove that |s'.history| == epoch of acceptor
-                assert s'.ls.servers[acceptor].epoch == |s'.history|;
-                assert historyLengthMatchesEpoch(s');
-            } else {
-                assert atMostOneHolder(s');
-                assert historyLengthMatchesEpoch(s');
-                assert someHolder(s) == someHolder(s');
-                someoneHoldsLock' := someoneHoldsLock;
-            }
-        }   // end if (s.ls.environment.nextStep.LEnvStepHostIos?)
-        else {
-            // if (!s.ls.environment.nextStep.LEnvStepHostIos?)
-            assert s'.history == s.history;
-            assert forall ep :: ep in s'.ls.servers ==> (
-                s'.ls.servers[ep].held == s.ls.servers[ep].held
-                && s'.ls.servers[ep].epoch == s.ls.servers[ep].epoch
-            );
-            assert atMostOneHolder(s');
-            assert historyLengthMatchesEpoch(s');
-            assert someHolder(s) == someHolder(s');
-            someoneHoldsLock' := someoneHoldsLock;
-        } // end else (!s.ls.environment.nextStep.LEnvStepHostIos?)
-    }
+    {}
 
 
     /* Takes a sequence of GLS_States states and returns a corresponding sequence of Service_States
