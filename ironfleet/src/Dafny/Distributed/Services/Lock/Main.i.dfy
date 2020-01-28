@@ -550,7 +550,7 @@ lemma atMostOneHolderInvInduction(s: GLS_State, s': GLS_State, existsHolder: boo
             assert !someHolder(s');
             existsHolder' := false;
         } else if (NodeAcceptStep(s, s')) {
-            assert existsHolder == false;   //!
+            assert existsHolder == false;   //! TONY 
             assert !someHolder(s);
             assert atMostOneHolder(s');
             assert someHolder(s');
@@ -633,24 +633,59 @@ lemma {:axiom} historyLengthInv(config:ConcreteConfiguration, glb: seq<GLS_State
         invariant forall k :: 0 <= k < i ==> |glb[k+1].history| >= |glb[k].history|;
         invariant forall k :: 0 <= k <= i ==> historyLengthMatchesEpoch(glb[k]);
         invariant current_epoch == |glb[i].history|;
+        invariant forall p, ep :: (
+            ep in glb[i].ls.servers
+            && p in glb[i].ls.environment.sentPackets
+            && p.src == glb[i].ls.servers[ep].config[(glb[i].ls.servers[ep].my_index - 1) % |glb[i].ls.servers[ep].config|]
+            && p.msg.Transfer?
+            && p.msg.transfer_epoch > glb[i].ls.servers[ep].epoch
+            ==>
+            p.msg.transfer_epoch == current_epoch
+        );
     {
         var s, s' := glb[i], glb[i+1];
-        current_epoch := historyLengthInvInduction(s, s', current_epoch);
+        current_epoch := historyLengthInvInduction(config, s, s', current_epoch);
         i := i + 1;
     }
 }
 
 /* Helper: Inductive step to prove that the atMostOneHolder and historyLengthMatchesEpoch
 *  properties are preserved across GLS_Next */ 
-lemma historyLengthInvInduction(s: GLS_State, s': GLS_State, current_epoch: int) returns (new_epoch: int)
+lemma historyLengthInvInduction(config: ConcreteConfiguration, s: GLS_State, s': GLS_State, current_epoch: int) returns (new_epoch: int)
+    requires |config| > 0;
+    requires forall ep :: (
+        ep in s.ls.servers
+        ==>
+        s.ls.servers[ep].config == config
+    );
+    requires forall ep :: ep in s.ls.servers <==> ep in config;
+    requires SeqIsUnique(config);
     requires GLS_Next(s, s');
     requires forall ep :: ep in s.ls.servers <==> ep in s'.ls.servers;
     requires atMostOneHolder(s);
     requires atMostOneHolder(s');
     requires historyLengthMatchesEpoch(s)
     requires current_epoch == |s.history|;
+    requires forall p, ep :: (
+        ep in s.ls.servers
+        && p in s.ls.environment.sentPackets
+        && p.src == config[(s.ls.servers[ep].my_index - 1) % |config|]
+        && p.msg.Transfer?
+        && p.msg.transfer_epoch > s.ls.servers[ep].epoch
+        ==>
+        p.msg.transfer_epoch == current_epoch
+    );
     ensures historyLengthMatchesEpoch(s');
     ensures new_epoch == |s'.history|;
+    ensures  forall p, ep :: (
+        ep in s'.ls.servers
+        && p in s'.ls.environment.sentPackets
+        && p.src == config[(s'.ls.servers[ep].my_index - 1) % |config|]
+        && p.msg.Transfer?
+        && p.msg.transfer_epoch > s'.ls.servers[ep].epoch
+        ==>
+        p.msg.transfer_epoch == new_epoch
+    );
 {
     if (s.ls.environment.nextStep.LEnvStepHostIos?) {
         if (NodeGrantStep(s, s')) {
@@ -663,25 +698,53 @@ lemma historyLengthInvInduction(s: GLS_State, s': GLS_State, current_epoch: int)
             assert !s'.ls.servers[granter].held;
             assert !someHolder(s');
             new_epoch := current_epoch + 1;
-            assert s'.history == s.history + [s.ls.servers[granter].config[(s.ls.servers[granter].my_index + 1) % |s.ls.servers[granter].config|]];
+            assert s'.history == s.history + [config[(s.ls.servers[granter].my_index + 1) % |config|]];
         } else if (NodeAcceptStep(s, s')) {
             var acceptor := s.ls.environment.nextStep.actor;
             assert s'.ls.servers[acceptor].held;
             var ios := s.ls.environment.nextStep.ios;
             assert LEnvironment_PerformIos(s.ls.environment, s'.ls.environment, acceptor, ios);
             var transfer_packet := ios[0].r;
-            assert transfer_packet.src in s.ls.servers[acceptor].config && transfer_packet.msg.Transfer?;
+
+            assert transfer_packet.src in config && transfer_packet.msg.Transfer?;
+
+            // Prove that source of transfer packet is the previous node
+            assert transfer_packet.src == config[(s.ls.servers[acceptor].my_index - 1) % |config|];  //! FINAL thing
             assert transfer_packet in s.ls.environment.sentPackets;   
-            assert transfer_packet.msg.transfer_epoch == current_epoch; // Need to show that only one msg where I am dst and transfer_epoch > my_epoch
+
+            assert transfer_packet.msg.transfer_epoch == current_epoch;
             assert s'.ls.servers[acceptor].epoch == current_epoch;
             assert |s.history| == |s'.history|;
             new_epoch := current_epoch;
+            assert forall p :: (
+                p in s'.ls.environment.sentPackets 
+                && p.msg.Transfer?
+                ==>
+                p in s.ls.environment.sentPackets 
+            );
         } else {
             assert forall ep :: ep in s.ls.servers ==> (
                 s.ls.servers[ep].held == s'.ls.servers[ep].held
             );
             assert |s.history| == |s'.history|;
             new_epoch := current_epoch;
+
+            var actor := s.ls.environment.nextStep.actor;
+            if actor in config {
+                assert s.ls.environment.sentPackets == s'.ls.environment.sentPackets;
+            } else {
+                assert forall p :: (
+                    p in s'.ls.environment.sentPackets 
+                    && ! (p in s.ls.environment.sentPackets)
+                    ==> 
+                    ! (p.src in config)
+                );
+                assert forall ep :: (
+                    ep in config 
+                    ==>
+                    config[(s'.ls.servers[ep].my_index - 1) % |config|] in config
+                );
+            }
         }
     } else {
         assert forall ep :: ep in s.ls.servers ==> (
@@ -689,6 +752,7 @@ lemma historyLengthInvInduction(s: GLS_State, s': GLS_State, current_epoch: int)
         );
         assert |s.history| == |s'.history|;
         new_epoch := current_epoch;
+        assert s.ls.environment.sentPackets == s'.ls.environment.sentPackets;
     }
 }
 
